@@ -29,6 +29,7 @@ import {
   PlexPlaylist,
 } from '../api/plex';
 import {usePlayerStore} from '../store/playerStore';
+import {navKeyboard, scrollTopFor, KeyCell} from './browseNav';
 
 const {width: SCREEN_W, height: SCREEN_H} = Dimensions.get('window');
 const COLS = 5;
@@ -79,7 +80,7 @@ const TAB_LABELS: Record<string, string> = {
 // On-screen keyboard layout. Letter rows are 7 wide; the last row holds the
 // action keys (space / delete / clear). Column is clamped to row width when
 // moving vertically between rows of different lengths.
-type Key = {l: string; v: string; act?: 'space' | 'del' | 'clear'};
+type Key = KeyCell;
 const letterRow = (s: string): Key[] => s.split('').map((c) => ({l: c, v: c}));
 const KEY_ROWS: Key[][] = [
   letterRow('ABCDEFG'),
@@ -284,9 +285,7 @@ export default function BrowseScreen({navigation, route}: any) {
   const setRes = (i: number) => {
     resIdxRef.current = i;
     setResIdxState(i);
-    let top = resTopRef.current;
-    if (i < top) top = i;
-    else if (i > top + RES_VISIBLE - 1) top = i - RES_VISIBLE + 1;
+    const top = scrollTopFor(i, resTopRef.current, RES_VISIBLE);
     if (top !== resTopRef.current) {
       resTopRef.current = top;
       resultsListRef.current?.scrollToOffset({
@@ -308,9 +307,7 @@ export default function BrowseScreen({navigation, route}: any) {
   const setSearchRes = (i: number) => {
     searchResIdxRef.current = i;
     setSearchResIdxState(i);
-    let top = searchResTopRef.current;
-    if (i < top) top = i;
-    else if (i > top + RES_VISIBLE - 1) top = i - RES_VISIBLE + 1;
+    const top = scrollTopFor(i, searchResTopRef.current, RES_VISIBLE);
     if (top !== searchResTopRef.current) {
       searchResTopRef.current = top;
       searchResultsListRef.current?.scrollToOffset({
@@ -425,9 +422,7 @@ export default function BrowseScreen({navigation, route}: any) {
     // they never scroll), so they need the same keep-focus-visible stepping the
     // album grid gets — just by single rows instead of grid rows.
     if (tabRef.current === 'playlists') {
-      let top = playlistTopRef.current;
-      if (i < top) top = i;
-      else if (i > top + RES_VISIBLE - 1) top = i - RES_VISIBLE + 1;
+      const top = scrollTopFor(i, playlistTopRef.current, RES_VISIBLE);
       if (top !== playlistTopRef.current) {
         playlistTopRef.current = top;
         playlistListRef.current?.scrollToOffset({
@@ -442,12 +437,7 @@ export default function BrowseScreen({navigation, route}: any) {
     // whole rows — horizontal moves within a row never scroll. This keeps
     // browsing smooth instead of re-centering on every keypress.
     const newRow = Math.floor(i / COLS);
-    let top = topRowRef.current;
-    if (newRow < top) {
-      top = newRow;
-    } else if (newRow > top + VISIBLE_ROWS - 1) {
-      top = newRow - VISIBLE_ROWS + 1;
-    }
+    const top = scrollTopFor(newRow, topRowRef.current, VISIBLE_ROWS);
     if (top !== topRowRef.current) {
       topRowRef.current = top;
       albumGridRef().current?.scrollToOffset({
@@ -608,30 +598,14 @@ export default function BrowseScreen({navigation, route}: any) {
     const az = artistZoneRef.current;
 
     if (az === 'keyboard') {
-      const kb = kbPosRef.current;
-      const row = KEY_ROWS[kb.row];
-      if (k === 'left') {
-        if (kb.col > 0) setKb(kb.row, kb.col - 1);
-        else setZone('tabs');
-      } else if (k === 'right') {
-        if (kb.col < row.length - 1) setKb(kb.row, kb.col + 1);
-        else if (filteredArtistsRef.current.length) setArtistZone('results');
-      } else if (k === 'up') {
-        if (kb.row > 0) {
-          const nr = kb.row - 1;
-          setKb(nr, Math.min(kb.col, KEY_ROWS[nr].length - 1));
-        } else {
-          setZone('tabs');
-        }
-      } else if (k === 'down') {
-        if (kb.row < KEY_ROWS.length - 1) {
-          const nr = kb.row + 1;
-          setKb(nr, Math.min(kb.col, KEY_ROWS[nr].length - 1));
-        } else {
-          setZone('back');
-        }
-      } else if (k === 'select') {
-        applyKey(row[kb.col]);
+      const nav = navKeyboard(KEY_ROWS, kbPosRef.current, k);
+      if (nav.kind === 'move') setKb(nav.pos.row, nav.pos.col);
+      else if (nav.kind === 'press') applyKey(nav.key);
+      else if (nav.kind === 'exitLeft' || nav.kind === 'exitUp') setZone('tabs');
+      else if (nav.kind === 'exitDown') setZone('back');
+      else if (nav.kind === 'exitRight') {
+        // Only cross into the results column when there is something there.
+        if (filteredArtistsRef.current.length) setArtistZone('results');
       }
       return;
     }
@@ -681,30 +655,14 @@ export default function BrowseScreen({navigation, route}: any) {
     const sz = searchZoneRef.current;
 
     if (sz === 'keyboard') {
-      const kb = kbPosRef.current;
-      const row = KEY_ROWS[kb.row];
-      if (k === 'left') {
-        if (kb.col > 0) setKb(kb.row, kb.col - 1);
-        else setZone('tabs');
-      } else if (k === 'right') {
-        if (kb.col < row.length - 1) setKb(kb.row, kb.col + 1);
-        else if (filteredSearchRef.current.length) setSearchZone('results');
-      } else if (k === 'up') {
-        if (kb.row > 0) {
-          const nr = kb.row - 1;
-          setKb(nr, Math.min(kb.col, KEY_ROWS[nr].length - 1));
-        } else {
-          setZone('tabs');
-        }
-      } else if (k === 'down') {
-        if (kb.row < KEY_ROWS.length - 1) {
-          const nr = kb.row + 1;
-          setKb(nr, Math.min(kb.col, KEY_ROWS[nr].length - 1));
-        } else {
-          setZone('back');
-        }
-      } else if (k === 'select') {
-        applySearchKey(row[kb.col]);
+      const nav = navKeyboard(KEY_ROWS, kbPosRef.current, k);
+      if (nav.kind === 'move') setKb(nav.pos.row, nav.pos.col);
+      else if (nav.kind === 'press') applySearchKey(nav.key);
+      else if (nav.kind === 'exitLeft' || nav.kind === 'exitUp') setZone('tabs');
+      else if (nav.kind === 'exitDown') setZone('back');
+      else if (nav.kind === 'exitRight') {
+        // Only cross into the results column when there is something there.
+        if (filteredSearchRef.current.length) setSearchZone('results');
       }
       return;
     }

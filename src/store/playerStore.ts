@@ -1,4 +1,4 @@
-import { create } from 'zustand';
+import {create} from 'zustand';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // Persist which station is driving the queue so auto-refill survives an app
@@ -51,9 +51,9 @@ const defaultState: PlayerState = {
   stationKind: null,
 };
 
-export const usePlayerStore = create<PlayerStore>((set) => ({
+export const usePlayerStore = create<PlayerStore>(set => ({
   ...defaultState,
-  setPlayerState: (state) => {
+  setPlayerState: state => {
     set(state);
     // Whenever stationKind is explicitly set (station started) or cleared (an
     // album/lucky queue took over), mirror it to disk so it can be restored.
@@ -66,7 +66,7 @@ export const usePlayerStore = create<PlayerStore>((set) => ({
       }
     }
   },
-  setAlbumArt: (url) => set({ albumArt: url }),
+  setAlbumArt: url => set({albumArt: url}),
   clearCache: () => {
     set(defaultState);
     AsyncStorage.removeItem(STATION_KEY).catch(() => {});
@@ -81,7 +81,7 @@ export async function loadPersistedStation(): Promise<
   try {
     const raw = await AsyncStorage.getItem(STATION_KEY);
     if (raw === 'library' || raw === 'deepcuts') {
-      usePlayerStore.setState({ stationKind: raw });
+      usePlayerStore.setState({stationKind: raw});
       return raw;
     }
   } catch {}

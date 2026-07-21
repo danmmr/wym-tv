@@ -34,7 +34,9 @@ export class CoverArtResolver {
   private async searchMusicBrainz(
     artist: string,
     title: string,
-    album: string,
+    // Not used in the query — MusicBrainz matches better on recording title
+    // plus artist alone. Kept in the signature to mirror resolveCoverArt.
+    _album: string,
   ): Promise<string | null> {
     try {
       // Search for recording
@@ -67,12 +69,17 @@ export class CoverArtResolver {
     return null;
   }
 
-  private async getCoverArtFromRelease(releaseId: string): Promise<string | null> {
+  private async getCoverArtFromRelease(
+    releaseId: string,
+  ): Promise<string | null> {
     try {
-      const response = await axios.get(`${COVERART_API}/release/${releaseId}/front`, {
-        timeout: 5000,
-        validateStatus: (status) => status === 200 || status === 307,
-      });
+      const response = await axios.get(
+        `${COVERART_API}/release/${releaseId}/front`,
+        {
+          timeout: 5000,
+          validateStatus: status => status === 200 || status === 307,
+        },
+      );
 
       if (response.status === 200) {
         return `${COVERART_API}/release/${releaseId}/front`;

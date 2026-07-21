@@ -1,11 +1,5 @@
 import React, {useEffect, useState, useMemo} from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  Dimensions,
-  NativeModules,
-} from 'react-native';
+import {View, Text, StyleSheet, Dimensions, NativeModules} from 'react-native';
 import {
   Canvas,
   Fill,
@@ -65,22 +59,22 @@ float ign(float2 p) {
   return fract(52.9829189 * fract(dot(p, float2(0.06711056, 0.00583715))));
 }
 
-// Per-pixel dither, added to the final colour, to soften gradient contouring.
+// Per-pixel dither, to soften 8-bit contouring across the palette's slow
+// gradients. A single-hue ramp bands far more visibly than the old multi-hue
+// sweep did, because all three channels step in the same places.
 //
-// It does NOT remove the fine diagonal weave in the field. That weave was
-// measured on a build from before the palette change and is present there too
-// (in fact with a worse flat-run score), so it long predates album-accent
-// theming. It is also invariant to DOWNSCALE — it looks the same at 1.0, 1.5
-// and 2.0 — so it is not the upscale resample beat either. What the single-hue
-// palette changed is only how VISIBLE it is: the old blue-to-red sweep had
-// enough chroma contrast to pull the eye off it. Don't spend time re-testing
-// resolutions or dither amplitudes on it; that ground is covered.
+// This does NOT address the diagonal weave that used to sit over the field —
+// that was float32 precision loss in the time uniform and is fixed at the
+// clock (see useCappedClock). Removing this dither was tried after that fix, on
+// the theory it had become redundant: it had NOT. Measured over a flat region,
+// dropping it took the fraction of runs 3px or wider from 0.29 to 0.38 and cut
+// unique colours from 856 to 419. It stays.
 //
-// Static (no time term) on purpose: a temporally varying dither shimmers, which
-// would read as noise crawling over the field.
+// Static (no time term): a time-varying dither reads as noise crawling.
 float3 dither(float2 fragCoord) {
   return float3((ign(fragCoord) - 0.5) * ${(3.0 / 255).toFixed(6)});
 }
+
 `;
 
 // The screensaver palette is a ramp between two endpoints, swept by the field
@@ -107,19 +101,34 @@ function hsvToRgb(h: number, s: number, v: number): [number, number, number] {
   let r = 0;
   let g = 0;
   let b = 0;
-  if (hh < 1) { r = c; g = x; }
-  else if (hh < 2) { r = x; g = c; }
-  else if (hh < 3) { g = c; b = x; }
-  else if (hh < 4) { g = x; b = c; }
-  else if (hh < 5) { r = x; b = c; }
-  else { r = c; b = x; }
+  if (hh < 1) {
+    r = c;
+    g = x;
+  } else if (hh < 2) {
+    r = x;
+    g = c;
+  } else if (hh < 3) {
+    g = c;
+    b = x;
+  } else if (hh < 4) {
+    g = x;
+    b = c;
+  } else if (hh < 5) {
+    r = x;
+    b = c;
+  } else {
+    r = c;
+    b = x;
+  }
   return [r + m, g + m, b + m];
 }
 
 // Hue and saturation of a #rrggbb string, or null if unparseable / grey.
 function hsOf(hex: string): {h: number; s: number} | null {
   const m = /^#?([0-9a-f]{6})$/i.exec(hex || '');
-  if (!m) return null;
+  if (!m) {
+    return null;
+  }
   const n = parseInt(m[1], 16);
   const r = ((n >> 16) & 255) / 255;
   const g = ((n >> 8) & 255) / 255;
@@ -127,13 +136,21 @@ function hsOf(hex: string): {h: number; s: number} | null {
   const max = Math.max(r, g, b);
   const min = Math.min(r, g, b);
   const d = max - min;
-  if (d < 0.02) return null; // grey - no meaningful hue
+  if (d < 0.02) {
+    return null;
+  } // grey - no meaningful hue
   let h: number;
-  if (max === r) h = ((g - b) / d) % 6;
-  else if (max === g) h = (b - r) / d + 2;
-  else h = (r - g) / d + 4;
+  if (max === r) {
+    h = ((g - b) / d) % 6;
+  } else if (max === g) {
+    h = (b - r) / d + 2;
+  } else {
+    h = (r - g) / d + 4;
+  }
   h *= 60;
-  if (h < 0) h += 360;
+  if (h < 0) {
+    h += 360;
+  }
   return {h, s: max > 0 ? d / max : 0};
 }
 
@@ -329,7 +346,10 @@ const METABALL_EFFECT = Skia.RuntimeEffect.Make(METABALL_SRC);
 export const VISUALIZERS = ['plasma', 'flow', 'starfield', 'metaball'] as const;
 export type Visualizer = (typeof VISUALIZERS)[number];
 
-const EFFECT_BY_VISUALIZER: Record<Visualizer, ReturnType<typeof Skia.RuntimeEffect.Make>> = {
+const EFFECT_BY_VISUALIZER: Record<
+  Visualizer,
+  ReturnType<typeof Skia.RuntimeEffect.Make>
+> = {
   plasma: PLASMA_EFFECT,
   flow: FLOW_EFFECT,
   starfield: STARFIELD_EFFECT,
@@ -411,7 +431,15 @@ function useCappedClock(fps: number) {
   return t;
 }
 
-function AlbumArt({uri, showProgressRing, trackProgress, accent}: {uri: string; showProgressRing: boolean; trackProgress: number; accent: string}) {
+function AlbumArt({
+  uri,
+  showProgressRing,
+  trackProgress,
+}: {
+  uri: string;
+  showProgressRing: boolean;
+  trackProgress: number;
+}) {
   const [img, setImg] = useState<SkImage | null>(null);
   const clock = useCappedClock(SAVER_FPS);
   const clipPath = useMemo(makeCirclePath, []);
@@ -421,7 +449,9 @@ function AlbumArt({uri, showProgressRing, trackProgress, accent}: {uri: string; 
     fetch(uri)
       .then(r => r.arrayBuffer())
       .then(buf => {
-        if (cancelled) return;
+        if (cancelled) {
+          return;
+        }
         const data = Skia.Data.fromBytes(new Uint8Array(buf));
         setImg(Skia.Image.MakeImageFromEncoded(data));
       })
@@ -473,9 +503,6 @@ function AlbumArt({uri, showProgressRing, trackProgress, accent}: {uri: string; 
     {translateX: orbitX.value},
     {translateY: orbitY.value},
   ]);
-  const ringCx = useDerivedValue(() => orbitX.value + ART_RADIUS);
-  const ringCy = useDerivedValue(() => orbitY.value + ART_RADIUS);
-
   // Progress arc as an SVG path string — guarantees a bare arc with no
   // connecting lines to the center (addArc draws a pie sector on this Skia build).
   const progressArcPath = useMemo((): string => {
@@ -484,10 +511,12 @@ function AlbumArt({uri, showProgressRing, trackProgress, accent}: {uri: string; 
     const cy = ART_RADIUS;
     if (trackProgress >= 1) {
       // Full circle: two semicircles avoids the degenerate coincident-endpoint case
-      return `M ${cx} ${cy - r} A ${r} ${r} 0 1 1 ${cx} ${cy + r} A ${r} ${r} 0 1 1 ${cx} ${cy - r}`;
+      return `M ${cx} ${cy - r} A ${r} ${r} 0 1 1 ${cx} ${
+        cy + r
+      } A ${r} ${r} 0 1 1 ${cx} ${cy - r}`;
     }
     const sweep = trackProgress * 360;
-    const startRad = -Math.PI / 2;          // 12 o'clock
+    const startRad = -Math.PI / 2; // 12 o'clock
     const endRad = startRad + (sweep * Math.PI) / 180;
     const x1 = cx + r * Math.cos(startRad);
     const y1 = cy + r * Math.sin(startRad);
@@ -498,7 +527,9 @@ function AlbumArt({uri, showProgressRing, trackProgress, accent}: {uri: string; 
     return `M ${x1} ${y1} A ${r} ${r} 0 ${largeArc} 1 ${x2} ${y2}`;
   }, [trackProgress]);
 
-  if (!img) return null;
+  if (!img) {
+    return null;
+  }
 
   return (
     <Canvas style={styles.canvas}>
@@ -574,11 +605,12 @@ function VisualizerCanvas({
     // Starfield and metaball keep the original 40s sinusoidal breath.
     let warpTime: number;
     if (visualizer === 'plasma' || visualizer === 'flow') {
-      warpTime = t
-        - (4.0 / Math.PI) * Math.cos((t * Math.PI) / 13.0)
-        + (3.0 / Math.PI) * Math.sin((t * Math.PI) / 19.0)
-        - (2.0 / Math.PI) * Math.cos((t * Math.PI) / 37.0)
-        + (1.5 / Math.PI) * Math.sin((t * Math.PI) / 53.0);
+      warpTime =
+        t -
+        (4.0 / Math.PI) * Math.cos((t * Math.PI) / 13.0) +
+        (3.0 / Math.PI) * Math.sin((t * Math.PI) / 19.0) -
+        (2.0 / Math.PI) * Math.cos((t * Math.PI) / 37.0) +
+        (1.5 / Math.PI) * Math.sin((t * Math.PI) / 53.0);
     } else {
       // Starfield (warp) and metaball breathe, but gently. warpTime =
       // t - (A/P_pi) * cos(t*pi/P) has speed 1 + (A/P)*sin(...), so the old
@@ -588,7 +620,7 @@ function VisualizerCanvas({
       warpTime = t - (3.0 / Math.PI) * Math.cos((t * Math.PI) / 20);
     }
     const beatPeriod = 60 / bpm;
-    const beatPulse = Math.pow(1 - ((t % beatPeriod) / beatPeriod), 2);
+    const beatPulse = Math.pow(1 - (t % beatPeriod) / beatPeriod, 2);
     const density = 0.7 + (volume / 100) * 0.6 + beatPulse * 0.2;
     const colorShift = (trackProgress * 0.8 + t * 0.018) % 1;
     return {
@@ -621,7 +653,10 @@ function VisualizerCanvas({
 }
 
 function clockNow(): string {
-  return new Date().toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'});
+  return new Date().toLocaleTimeString([], {
+    hour: '2-digit',
+    minute: '2-digit',
+  });
 }
 
 export interface ScreensaverProps {
@@ -641,7 +676,12 @@ class ScreensaverErrorBoundary extends React.Component<
   }
 
   componentDidCatch(error: Error, info: any) {
-    console.error('SCREENSAVER_CRASH:', error?.message, error?.stack, info?.componentStack);
+    console.error(
+      'SCREENSAVER_CRASH:',
+      error?.message,
+      error?.stack,
+      info?.componentStack,
+    );
   }
 
   render() {
@@ -669,8 +709,16 @@ export default function ScreensaverWrapped(props: ScreensaverProps) {
   );
 }
 
-function Screensaver({onExit, visualizer = 'plasma', showProgressRing = false}: ScreensaverProps) {
-  const {title, artist, albumArt, volume, currentPos, duration, accent} = usePlayerStore();
+function Screensaver({
+  // Unused: the parent screen owns the D-pad and dismisses the screensaver
+  // itself, so this is never invoked. Kept on the props type as documentation
+  // of the intended contract.
+  onExit: _onExit,
+  visualizer = 'plasma',
+  showProgressRing = false,
+}: ScreensaverProps) {
+  const {title, artist, albumArt, volume, currentPos, duration, accent} =
+    usePlayerStore();
   const ringColor = accent || '#78a0ff';
 
   const clock = useCappedClock(SAVER_FPS);
@@ -720,7 +768,13 @@ function Screensaver({onExit, visualizer = 'plasma', showProgressRing = false}: 
         accent={ringColor}
       />
 
-      {!!albumArt && <AlbumArt uri={albumArt} showProgressRing={showProgressRing} trackProgress={trackProgress} accent={ringColor} />}
+      {!!albumArt && (
+        <AlbumArt
+          uri={albumArt}
+          showProgressRing={showProgressRing}
+          trackProgress={trackProgress}
+        />
+      )}
 
       {title ? (
         <ReAnimated.View style={[styles.floatBlock, floatStyle]}>
@@ -794,7 +848,12 @@ const styles = StyleSheet.create({
     padding: 40,
     justifyContent: 'center',
   },
-  errTitle: {color: '#ff5555', fontSize: 32, fontWeight: 'bold', marginBottom: 16},
+  errTitle: {
+    color: '#ff5555',
+    fontSize: 32,
+    fontWeight: 'bold',
+    marginBottom: 16,
+  },
   errMsg: {color: '#ffaa55', fontSize: 22, marginBottom: 20},
   errStack: {color: '#cccccc', fontSize: 14, fontFamily: 'monospace'},
 });

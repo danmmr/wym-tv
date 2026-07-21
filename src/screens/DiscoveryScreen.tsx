@@ -1,4 +1,4 @@
-import React, { useCallback, useRef, useState } from 'react';
+import React, {useCallback, useRef, useState} from 'react';
 import {
   View,
   Text,
@@ -10,23 +10,23 @@ import {
   DeviceEventEmitter,
   NativeModules,
 } from 'react-native';
-import { useFocusEffect } from '@react-navigation/native';
-import { useDeviceStore } from '../store/deviceStore';
-import { DeviceDiscovery } from '../api/discovery';
-import { WiiMDevice } from '../store/deviceStore';
-import { KNOWN_DEVICES } from '../config/knownDevices';
+import {useFocusEffect} from '@react-navigation/native';
+import {useDeviceStore} from '../store/deviceStore';
+import {DeviceDiscovery} from '../api/discovery';
+import {WiiMDevice} from '../store/deviceStore';
+import {KNOWN_DEVICES} from '../config/knownDevices';
 
-export default function DiscoveryScreen({ navigation }: any) {
+export default function DiscoveryScreen({navigation}: any) {
   // Seed with the known/hardcoded devices so they appear instantly.
   const [devices, setDevices] = useState<WiiMDevice[]>(KNOWN_DEVICES);
   const [loading, setLoading] = useState(false);
   const [manualIP, setManualIP] = useState('');
   const [manualError, setManualError] = useState('');
   const [focusIdx, setFocusIdx] = useState(0);
-  const { setSelectedDevice } = useDeviceStore();
+  const {setSelectedDevice} = useDeviceStore();
 
   // D-pad focus ring: each device, then the Scan button.
-  const items = [...devices.map((d) => d.id), 'scan'];
+  const items = [...devices.map(d => d.id), 'scan'];
   const itemsRef = useRef(items);
   itemsRef.current = items;
   const focusIdxRef = useRef(0);
@@ -40,9 +40,9 @@ export default function DiscoveryScreen({ navigation }: any) {
     try {
       const discovery = new DeviceDiscovery();
       // Stream newly-found devices in, keeping the known ones already shown.
-      await discovery.discover((d) => {
-        setDevices((prev) =>
-          prev.find((x) => x.id === d.id) ? prev : [...prev, d],
+      await discovery.discover(d => {
+        setDevices(prev =>
+          prev.find(x => x.id === d.id) ? prev : [...prev, d],
         );
       });
     } catch (error) {
@@ -53,15 +53,17 @@ export default function DiscoveryScreen({ navigation }: any) {
 
   const addManual = async () => {
     const ip = manualIP.trim();
-    if (!ip) return;
+    if (!ip) {
+      return;
+    }
     setManualError('');
     setLoading(true);
     try {
       const discovery = new DeviceDiscovery();
       const device = await discovery.probeOne(ip);
       if (device) {
-        setDevices((prev) =>
-          prev.find((x) => x.id === device.id) ? prev : [...prev, device],
+        setDevices(prev =>
+          prev.find(x => x.id === device.id) ? prev : [...prev, device],
         );
         setManualIP('');
       } else {
@@ -83,8 +85,10 @@ export default function DiscoveryScreen({ navigation }: any) {
       discoverDevices();
       return;
     }
-    const dev = devices.find((d) => d.id === id);
-    if (dev) selectDevice(dev);
+    const dev = devices.find(d => d.id === id);
+    if (dev) {
+      selectDevice(dev);
+    }
   };
 
   React.useEffect(() => {
@@ -95,13 +99,13 @@ export default function DiscoveryScreen({ navigation }: any) {
   useFocusEffect(
     useCallback(() => {
       NativeModules.RemoteControl?.setCaptureDpad(true);
-      setFocusIdx((i) => Math.min(i, itemsRef.current.length - 1));
+      setFocusIdx(i => Math.min(i, itemsRef.current.length - 1));
       const sub = DeviceEventEmitter.addListener('WiiMNavKey', (k: string) => {
         const len = itemsRef.current.length;
         if (k === 'up') {
-          setFocusIdx((i) => Math.max(0, i - 1));
+          setFocusIdx(i => Math.max(0, i - 1));
         } else if (k === 'down') {
-          setFocusIdx((i) => Math.min(len - 1, i + 1));
+          setFocusIdx(i => Math.min(len - 1, i + 1));
         } else if (k === 'select') {
           activate(itemsRef.current[focusIdxRef.current]);
         }
@@ -111,10 +115,13 @@ export default function DiscoveryScreen({ navigation }: any) {
       return () => {
         sub.remove();
       };
+      // The D-pad listener is registered ONCE and reads live values through
+      // refs.
+      // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [devices]),
   );
 
-  const renderDevice = ({ item }: { item: WiiMDevice }) => (
+  const renderDevice = ({item}: {item: WiiMDevice}) => (
     <TouchableOpacity
       style={[
         styles.deviceCard,
@@ -153,7 +160,7 @@ export default function DiscoveryScreen({ navigation }: any) {
       <FlatList
         data={devices}
         renderItem={renderDevice}
-        keyExtractor={(item) => item.id}
+        keyExtractor={item => item.id}
         extraData={focusedId}
         style={styles.list}
       />

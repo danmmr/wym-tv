@@ -4,9 +4,12 @@ import {WiiMDevice} from '../store/deviceStore';
 // Fast, dedicated probe (short timeout — we're hitting up to 254 hosts).
 async function probeIP(ip: string): Promise<WiiMDevice | null> {
   try {
-    const res = await axios.get(`https://${ip}/httpapi.asp?command=getStatusEx`, {
-      timeout: 1200,
-    });
+    const res = await axios.get(
+      `https://${ip}/httpapi.asp?command=getStatusEx`,
+      {
+        timeout: 1200,
+      },
+    );
     const info = res.data;
     // getStatusEx returns the friendly name in `ssid`; `project` is the model.
     if (info && (info.DeviceName || info.ssid || info.project)) {
@@ -35,7 +38,9 @@ async function scanSubnet(
   }
   for (let i = 0; i < hosts.length; i += batchSize) {
     const batch = hosts.slice(i, i + batchSize);
-    const results = await Promise.all(batch.map(h => probeIP(`${prefix}.${h}`)));
+    const results = await Promise.all(
+      batch.map(h => probeIP(`${prefix}.${h}`)),
+    );
     results.forEach(d => {
       if (d) {
         onFound(d);

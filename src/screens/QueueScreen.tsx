@@ -19,7 +19,7 @@ const VISIBLE = 6; // seed only; the real count is measured onLayout
 
 // Focus model: 0 = the shuffle button, 1..N = the track at that 1-based index.
 export default function QueueScreen({navigation}: any) {
-  const selectedDevice = useDeviceStore((s) => s.selectedDevice);
+  const selectedDevice = useDeviceStore(s => s.selectedDevice);
   const clientRef = useRef<WiiMClient | null>(null);
 
   const [items, setItems] = useState<QueueItem[]>([]);
@@ -40,17 +40,28 @@ export default function QueueScreen({navigation}: any) {
   const itemsRef = useRef<QueueItem[]>([]);
   const listNameRef = useRef('');
   const shuffleRef = useRef(false);
-  useEffect(() => { focusRef.current = focus; }, [focus]);
-  useEffect(() => { itemsRef.current = items; }, [items]);
-  useEffect(() => { listNameRef.current = listName; }, [listName]);
-  useEffect(() => { shuffleRef.current = shuffle; }, [shuffle]);
+  useEffect(() => {
+    focusRef.current = focus;
+  }, [focus]);
+  useEffect(() => {
+    itemsRef.current = items;
+  }, [items]);
+  useEffect(() => {
+    listNameRef.current = listName;
+  }, [listName]);
+  useEffect(() => {
+    shuffleRef.current = shuffle;
+  }, [shuffle]);
 
   const scrollToTrack = (oneBased: number) => {
     const row = Math.max(0, oneBased - 1);
     const vis = visibleRowsRef.current;
     let top = topRef.current;
-    if (row < top) top = row;
-    else if (row > top + vis - 1) top = row - vis + 1;
+    if (row < top) {
+      top = row;
+    } else if (row > top + vis - 1) {
+      top = row - vis + 1;
+    }
     if (top !== topRef.current) {
       topRef.current = top;
       listRef.current?.scrollToOffset({offset: top * ROW_H, animated: true});
@@ -59,7 +70,9 @@ export default function QueueScreen({navigation}: any) {
 
   const load = useCallback(async () => {
     const c = clientRef.current;
-    if (!c) return;
+    if (!c) {
+      return;
+    }
     try {
       const [q, st] = await Promise.all([c.browseQueue(), c.getStatus()]);
       const cur = parseInt(st.plicurr, 10) || 0;
@@ -88,7 +101,9 @@ export default function QueueScreen({navigation}: any) {
     // Keep the "now playing" highlight fresh as the queue auto-advances.
     const iv = setInterval(async () => {
       const c = clientRef.current;
-      if (!c) return;
+      if (!c) {
+        return;
+      }
       try {
         const st = await c.getStatus();
         setCurrent(parseInt(st.plicurr, 10) || 0);
@@ -99,7 +114,9 @@ export default function QueueScreen({navigation}: any) {
 
   const toggleShuffle = async () => {
     const c = clientRef.current;
-    if (!c) return;
+    if (!c) {
+      return;
+    }
     const on = !shuffleRef.current;
     setShuffle(on);
     try {
@@ -109,7 +126,9 @@ export default function QueueScreen({navigation}: any) {
 
   const skipTo = async (oneBased: number) => {
     const c = clientRef.current;
-    if (!c) return;
+    if (!c) {
+      return;
+    }
     setStatus('Jumping…');
     try {
       await c.playIndex(listNameRef.current, oneBased);
@@ -127,23 +146,40 @@ export default function QueueScreen({navigation}: any) {
         const f = focusRef.current;
         const n = itemsRef.current.length;
         if (k === 'up') {
-          if (f <= 1) setFocus(0);
-          else { const nf = f - 1; setFocus(nf); scrollToTrack(nf); }
+          if (f <= 1) {
+            setFocus(0);
+          } else {
+            const nf = f - 1;
+            setFocus(nf);
+            scrollToTrack(nf);
+          }
         } else if (k === 'down') {
-          if (f === 0) { setFocus(1); scrollToTrack(1); }
-          else if (f < n) { const nf = f + 1; setFocus(nf); scrollToTrack(nf); }
+          if (f === 0) {
+            setFocus(1);
+            scrollToTrack(1);
+          } else if (f < n) {
+            const nf = f + 1;
+            setFocus(nf);
+            scrollToTrack(nf);
+          }
         } else if (k === 'left') {
           navigation.navigate('NowPlaying');
         } else if (k === 'select') {
-          if (f === 0) toggleShuffle();
-          else skipTo(f);
+          if (f === 0) {
+            toggleShuffle();
+          } else {
+            skipTo(f);
+          }
         }
       });
       const back = BackHandler.addEventListener('hardwareBackPress', () => {
         navigation.navigate('NowPlaying');
         return true;
       });
-      return () => { sub.remove(); back.remove(); };
+      return () => {
+        sub.remove();
+        back.remove();
+      };
     }, [navigation]),
   );
 
@@ -181,8 +217,7 @@ export default function QueueScreen({navigation}: any) {
         </Text>
       </View>
 
-      <View
-        style={[styles.shuffle, focus === 0 && styles.shuffleFocused]}>
+      <View style={[styles.shuffle, focus === 0 && styles.shuffleFocused]}>
         <Text style={styles.shuffleText}>
           {`🔀 Shuffle: ${shuffle ? 'On' : 'Off'}`}
         </Text>
@@ -194,20 +229,26 @@ export default function QueueScreen({navigation}: any) {
         ref={listRef}
         data={items}
         renderItem={renderRow}
-        keyExtractor={(it) => String(it.index)}
+        keyExtractor={it => String(it.index)}
         extraData={`${focus}:${current}`}
         style={styles.list}
         initialNumToRender={24}
-        onLayout={(e) => {
+        onLayout={e => {
           visibleRowsRef.current = Math.max(
             1,
             Math.floor(e.nativeEvent.layout.height / ROW_H),
           );
         }}
-        getItemLayout={(_d, i) => ({length: ROW_H, offset: ROW_H * i, index: i})}
+        getItemLayout={(_d, i) => ({
+          length: ROW_H,
+          offset: ROW_H * i,
+          index: i,
+        })}
       />
 
-      <Text style={styles.hint}>OK: jump to track · LEFT/BACK: Now Playing</Text>
+      <Text style={styles.hint}>
+        OK: jump to track · LEFT/BACK: Now Playing
+      </Text>
     </View>
   );
 }

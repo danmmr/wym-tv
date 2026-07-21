@@ -32,7 +32,7 @@ const VISIBLE = 6; // seed; the real count is measured onLayout
 // WiiM as one queue, so the rest of it plays on afterwards.
 export default function AlbumScreen({route, navigation}: any) {
   const album: PlexAlbum = route?.params?.album;
-  const selectedDevice = useDeviceStore((s) => s.selectedDevice);
+  const selectedDevice = useDeviceStore(s => s.selectedDevice);
   const clientRef = useRef<WiiMClient | null>(null);
 
   const [tracks, setTracks] = useState<PlexTrack[]>([]);
@@ -57,8 +57,11 @@ export default function AlbumScreen({route, navigation}: any) {
   const scrollTo = (row: number) => {
     const vis = visibleRowsRef.current;
     let top = topRef.current;
-    if (row < top) top = row;
-    else if (row > top + vis - 1) top = row - vis + 1;
+    if (row < top) {
+      top = row;
+    } else if (row > top + vis - 1) {
+      top = row - vis + 1;
+    }
     if (top !== topRef.current) {
       topRef.current = top;
       listRef.current?.scrollToOffset({offset: top * ROW_H, animated: true});
@@ -91,7 +94,9 @@ export default function AlbumScreen({route, navigation}: any) {
   // "play album" path builds, so metadata and auto-advance behave identically.
   const playFrom = async (i: number) => {
     const c = clientRef.current;
-    if (!c || busyRef.current || !album) return;
+    if (!c || busyRef.current || !album) {
+      return;
+    }
     busyRef.current = true;
     const t = tracksRef.current[i];
     setStatus(`Playing "${t ? t.title : album.title}"…`);
@@ -142,10 +147,16 @@ export default function AlbumScreen({route, navigation}: any) {
         sub.remove();
         back.remove();
       };
+      // The D-pad listener is registered ONCE and reads live values through
+      // refs. Adding playFrom here would re-register it on every render.
+      // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [navigation]),
   );
 
-  const totalMs = tracks.reduce((sum, t) => sum + (Number(t.durationMs) || 0), 0);
+  const totalMs = tracks.reduce(
+    (sum, t) => sum + (Number(t.durationMs) || 0),
+    0,
+  );
 
   const renderRow = ({item, index: i}: {item: PlexTrack; index: number}) => {
     const isFocused = focus === i;
@@ -209,13 +220,17 @@ export default function AlbumScreen({route, navigation}: any) {
         extraData={focus}
         style={styles.list}
         initialNumToRender={24}
-        onLayout={(e) => {
+        onLayout={e => {
           visibleRowsRef.current = Math.max(
             1,
             Math.floor(e.nativeEvent.layout.height / ROW_H),
           );
         }}
-        getItemLayout={(_d, i) => ({length: ROW_H, offset: ROW_H * i, index: i})}
+        getItemLayout={(_d, i) => ({
+          length: ROW_H,
+          offset: ROW_H * i,
+          index: i,
+        })}
       />
 
       <Text style={styles.hint}>
@@ -229,7 +244,9 @@ export default function AlbumScreen({route, navigation}: any) {
 // but box sets do).
 function fmtDur(ms: string): string {
   const total = Math.round((Number(ms) || 0) / 1000);
-  if (!total) return '';
+  if (!total) {
+    return '';
+  }
   const h = Math.floor(total / 3600);
   const m = Math.floor((total % 3600) / 60);
   const s = total % 60;

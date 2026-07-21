@@ -1,4 +1,4 @@
-import React, { useCallback, useRef, useState } from 'react';
+import React, {useCallback, useRef, useState} from 'react';
 import {
   View,
   Text,
@@ -8,15 +8,15 @@ import {
   DeviceEventEmitter,
   Alert,
 } from 'react-native';
-import { useFocusEffect } from '@react-navigation/native';
-import { useDeviceStore } from '../store/deviceStore';
-import { usePlayerStore } from '../store/playerStore';
+import {useFocusEffect} from '@react-navigation/native';
+import {useDeviceStore} from '../store/deviceStore';
+import {usePlayerStore} from '../store/playerStore';
 
 // Vertical focus order for the JS D-pad cursor.
 const ITEMS = ['clear', 'restart', 'back'] as const;
 type Item = (typeof ITEMS)[number];
 
-export default function SettingsScreen({ navigation }: any) {
+export default function SettingsScreen({navigation}: any) {
   const deviceStore = useDeviceStore();
   const playerStore = usePlayerStore();
   const [focusIdx, setFocusIdx] = useState(0);
@@ -35,7 +35,7 @@ export default function SettingsScreen({ navigation }: any) {
 
   const handleRestart = () => {
     Alert.alert('Restart App', 'Kill and relaunch WiiM TV?', [
-      { text: 'Cancel', style: 'cancel' },
+      {text: 'Cancel', style: 'cancel'},
       {
         text: 'Restart',
         style: 'destructive',
@@ -45,9 +45,13 @@ export default function SettingsScreen({ navigation }: any) {
   };
 
   const activate = (item: Item) => {
-    if (item === 'clear') handleClearCache();
-    else if (item === 'restart') handleRestart();
-    else navigation.navigate('NowPlaying');
+    if (item === 'clear') {
+      handleClearCache();
+    } else if (item === 'restart') {
+      handleRestart();
+    } else {
+      navigation.navigate('NowPlaying');
+    }
   };
 
   // JS-managed focus cursor (native TouchableOpacity focus is invisible on
@@ -58,11 +62,18 @@ export default function SettingsScreen({ navigation }: any) {
       NativeModules.RemoteControl?.setCaptureDpad(true);
       const sub = DeviceEventEmitter.addListener('WiiMNavKey', (k: string) => {
         const idx = focusIdxRef.current;
-        if (k === 'up') setFocus(Math.max(0, idx - 1));
-        else if (k === 'down') setFocus(Math.min(ITEMS.length - 1, idx + 1));
-        else if (k === 'select') activate(ITEMS[idx]);
+        if (k === 'up') {
+          setFocus(Math.max(0, idx - 1));
+        } else if (k === 'down') {
+          setFocus(Math.min(ITEMS.length - 1, idx + 1));
+        } else if (k === 'select') {
+          activate(ITEMS[idx]);
+        }
       });
       return () => sub.remove();
+      // The D-pad listener is registered ONCE and reads live values through
+      // refs.
+      // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []),
   );
 
@@ -97,7 +108,9 @@ export default function SettingsScreen({ navigation }: any) {
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>About</Text>
         <Text style={styles.aboutText}>WiiM TV v0.0.1</Text>
-        <Text style={styles.aboutText}>Remote control for WiiM audio devices</Text>
+        <Text style={styles.aboutText}>
+          Remote control for WiiM audio devices
+        </Text>
       </View>
 
       <TouchableOpacity

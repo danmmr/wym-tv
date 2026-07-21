@@ -1,4 +1,4 @@
-import { useRef, useCallback } from 'react';
+import {useRef, useCallback} from 'react';
 
 export const useScreensaver = (
   onScreensaverTrigger: () => void,
@@ -19,5 +19,5 @@ export const useScreensaver = (
     }
   }, []);
 
-  return { resetTimer, clearTimer };
+  return {resetTimer, clearTimer};
 };

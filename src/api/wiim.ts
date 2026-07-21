@@ -82,7 +82,9 @@ export function decodeEntities(s: string): string {
     .replace(/&#x27;/g, "'")
     .replace(/&apos;/g, "'")
     .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(parseInt(n, 10)))
-    .replace(/&#x([0-9a-fA-F]+);/g, (_, n) => String.fromCharCode(parseInt(n, 16)))
+    .replace(/&#x([0-9a-fA-F]+);/g, (_, n) =>
+      String.fromCharCode(parseInt(n, 16)),
+    )
     .replace(/&amp;/g, '&'); // ampersand last so it doesn't double-decode
 }
 
@@ -241,10 +243,12 @@ export class WiiMClient {
   async browseQueue(): Promise<QueueInfo> {
     const resp = await this.playQueueSoap(
       'BrowseQueue',
-      `<QueueName>CurrentQueue</QueueName>`,
+      '<QueueName>CurrentQueue</QueueName>',
     );
     const ctx = /<QueueContext>([\s\S]*?)<\/QueueContext>/.exec(resp);
-    if (!ctx) return {listName: '', items: []};
+    if (!ctx) {
+      return {listName: '', items: []};
+    }
     const playlist = decodeEntities(ctx[1]);
     const nameM = /<ListName>([\s\S]*?)<\/ListName>/.exec(playlist);
     const listName = nameM ? decodeEntities(nameM[1]).trim() : '';
@@ -284,7 +288,9 @@ export class WiiMClient {
   // QueueContext as CreateQueue; the device merges its Tracks into the queue
   // whose ListName matches (QUEUE_NAME).
   async appendQueue(tracks: QueueTrack[]): Promise<void> {
-    if (!tracks.length) return;
+    if (!tracks.length) {
+      return;
+    }
     const ctx = buildQueueContext(QUEUE_NAME, tracks);
     await this.playQueueSoap(
       'AppendTracksInQueue',
@@ -293,7 +299,9 @@ export class WiiMClient {
   }
 
   async playAlbumQueue(tracks: QueueTrack[], startIndex = 0): Promise<void> {
-    if (!tracks.length) return;
+    if (!tracks.length) {
+      return;
+    }
     const ctx = buildQueueContext(QUEUE_NAME, tracks);
     await this.playQueueSoap(
       'CreateQueue',

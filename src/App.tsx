@@ -1,15 +1,15 @@
-import React, { useEffect, useState } from 'react';
-import { AppState, NativeModules } from 'react-native';
-import { NavigationContainer } from '@react-navigation/native';
-import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import React, {useEffect, useState} from 'react';
+import {AppState, NativeModules} from 'react-native';
+import {NavigationContainer} from '@react-navigation/native';
+import {createNativeStackNavigator} from '@react-navigation/native-stack';
 import DiscoveryScreen from './screens/DiscoveryScreen';
 import NowPlayingScreen from './screens/NowPlayingScreen';
 import BrowseScreen from './screens/BrowseScreen';
 import QueueScreen from './screens/QueueScreen';
 import AlbumScreen from './screens/AlbumScreen';
 import SettingsScreen from './screens/SettingsScreen';
-import { loadPersistedDevice } from './store/deviceStore';
-import { loadPersistedStation } from './store/playerStore';
+import {loadPersistedDevice} from './store/deviceStore';
+import {loadPersistedStation} from './store/playerStore';
 
 const Stack = createNativeStackNavigator();
 
@@ -24,7 +24,7 @@ export default function App() {
     // driving the queue before a restart keeps auto-refilling.
     loadPersistedStation().catch(() => {});
     loadPersistedDevice()
-      .then((dev) => setHasDevice(!!dev))
+      .then(dev => setHasDevice(!!dev))
       .finally(() => setBooted(true));
   }, []);
 
@@ -35,7 +35,7 @@ export default function App() {
   // start back into Now Playing. Only 'background' triggers it, not the
   // transient 'inactive' state (in-app dialogs keep the activity resumed).
   useEffect(() => {
-    const sub = AppState.addEventListener('change', (state) => {
+    const sub = AppState.addEventListener('change', state => {
       if (state === 'background') {
         NativeModules.WakeControl?.exitApp();
       }
@@ -43,7 +43,9 @@ export default function App() {
     return () => sub.remove();
   }, []);
 
-  if (!booted) return null; // brief; the native splash covers this
+  if (!booted) {
+    return null;
+  } // brief; the native splash covers this
 
   return (
     <NavigationContainer>
@@ -56,32 +58,32 @@ export default function App() {
         <Stack.Screen
           name="Discovery"
           component={DiscoveryScreen}
-          options={{ title: 'Find Devices' }}
+          options={{title: 'Find Devices'}}
         />
         <Stack.Screen
           name="NowPlaying"
           component={NowPlayingScreen}
-          options={{ title: 'Now Playing' }}
+          options={{title: 'Now Playing'}}
         />
         <Stack.Screen
           name="Browse"
           component={BrowseScreen}
-          options={{ title: 'Browse' }}
+          options={{title: 'Browse'}}
         />
         <Stack.Screen
           name="Album"
           component={AlbumScreen}
-          options={{ title: 'Album' }}
+          options={{title: 'Album'}}
         />
         <Stack.Screen
           name="Queue"
           component={QueueScreen}
-          options={{ title: 'Queue' }}
+          options={{title: 'Queue'}}
         />
         <Stack.Screen
           name="Settings"
           component={SettingsScreen}
-          options={{ title: 'Settings' }}
+          options={{title: 'Settings'}}
         />
       </Stack.Navigator>
     </NavigationContainer>

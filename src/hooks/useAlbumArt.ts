@@ -13,7 +13,9 @@ export const useAlbumArt = () => {
     let cancelled = false;
 
     const resolve = async () => {
-      if (!title || title === 'Unknown') return;
+      if (!title || title === 'Unknown') {
+        return;
+      }
 
       // 1) Ask the device directly — getMetaInfo returns albumArtURI for the
       //    current track (works great for local/Plex libraries).
@@ -23,7 +25,9 @@ export const useAlbumArt = () => {
           const meta = await client.getMetaInfo();
           const uri = meta?.metaData?.albumArtURI;
           if (uri && typeof uri === 'string' && uri.startsWith('http')) {
-            if (!cancelled) setAlbumArt(uri);
+            if (!cancelled) {
+              setAlbumArt(uri);
+            }
             return;
           }
         } catch (e) {
@@ -38,7 +42,9 @@ export const useAlbumArt = () => {
           title,
           album,
         );
-        if (artUrl && !cancelled) setAlbumArt(artUrl);
+        if (artUrl && !cancelled) {
+          setAlbumArt(artUrl);
+        }
       } catch (e) {
         // leave placeholder
       }
@@ -49,6 +55,9 @@ export const useAlbumArt = () => {
       cancelled = true;
     };
     // Re-resolve whenever the track changes.
+    // setAlbumArt is a stable zustand setter; listing it would re-run this fetch
+    // on every store write.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [title, artist, album, selectedDevice]);
 
   return {albumArt};

@@ -81,7 +81,7 @@ const TAB_LABELS: Record<string, string> = {
 // action keys (space / delete / clear). Column is clamped to row width when
 // moving vertically between rows of different lengths.
 type Key = KeyCell;
-const letterRow = (s: string): Key[] => s.split('').map((c) => ({l: c, v: c}));
+const letterRow = (s: string): Key[] => s.split('').map(c => ({l: c, v: c}));
 const KEY_ROWS: Key[][] = [
   letterRow('ABCDEFG'),
   letterRow('HIJKLMN'),
@@ -113,7 +113,10 @@ const AlbumCard = React.memo(function AlbumCard({
   return (
     <View style={[styles.card, focused && styles.cardFocused]}>
       {album.thumb ? (
-        <Image source={{uri: artUrl(album.thumb, 320)}} style={styles.cardArt} />
+        <Image
+          source={{uri: artUrl(album.thumb, 320)}}
+          style={styles.cardArt}
+        />
       ) : (
         <View style={[styles.cardArt, styles.cardArtPlaceholder]}>
           <Text style={styles.cardArtPlaceholderText}>
@@ -132,14 +135,14 @@ const AlbumCard = React.memo(function AlbumCard({
 });
 
 export default function BrowseScreen({navigation, route}: any) {
-  const selectedDevice = useDeviceStore((s) => s.selectedDevice);
+  const selectedDevice = useDeviceStore(s => s.selectedDevice);
   // Optionally deep-linked to a specific tab (e.g. the Now Playing "Recently
   // Added" button opens Browse directly on the Recent tab).
   const initialTab: string = route?.params?.initialTab || 'albums';
   const [activeTab, setActiveTab] = useState(initialTab);
   const [presets, setPresets] = useState<any[]>([]);
   const [inputSources, setInputSources] = useState<any[]>([]);
-  const [client, setClient] = useState<WiiMClient | null>(null);
+  const [, setClient] = useState<WiiMClient | null>(null);
 
   // Album grid state
   const [albums, setAlbums] = useState<PlexAlbum[]>([]);
@@ -249,8 +252,10 @@ export default function BrowseScreen({navigation, route}: any) {
   // Live-filtered artist results (substring, case-insensitive).
   const filteredArtists = useMemo(() => {
     const q = artistQuery.trim().toLowerCase();
-    if (!q) return allArtists;
-    return allArtists.filter((a) => a.name.toLowerCase().includes(q));
+    if (!q) {
+      return allArtists;
+    }
+    return allArtists.filter(a => a.name.toLowerCase().includes(q));
   }, [allArtists, artistQuery]);
   useEffect(() => {
     filteredArtistsRef.current = filteredArtists;
@@ -261,11 +266,12 @@ export default function BrowseScreen({navigation, route}: any) {
   // already-loaded `albums` — no extra Plex calls.
   const filteredSearch = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
-    if (!q) return albums;
+    if (!q) {
+      return albums;
+    }
     return albums.filter(
-      (a) =>
-        a.title.toLowerCase().includes(q) ||
-        a.artist.toLowerCase().includes(q),
+      a =>
+        a.title.toLowerCase().includes(q) || a.artist.toLowerCase().includes(q),
     );
   }, [albums, searchQuery]);
   useEffect(() => {
@@ -329,6 +335,9 @@ export default function BrowseScreen({navigation, route}: any) {
     loadAlbums();
     loadRecent();
     loadPlaylists();
+    // Runs when the selected device changes. navigation is stable and listing it
+    // would re-run the whole Plex load.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedDevice]);
 
   // Not cached: playlists are edited outside the app, so reopening Browse
@@ -382,7 +391,9 @@ export default function BrowseScreen({navigation, route}: any) {
         setProgress({loaded, total}),
       );
       setAlbums(list);
-      if (!list.length) setStatusMsg('No albums found on Plex.');
+      if (!list.length) {
+        setStatusMsg('No albums found on Plex.');
+      }
       // Artists are derived from the same cached catalog (no extra fetch).
       const arts = await getArtists();
       setAllArtists(arts);
@@ -395,10 +406,18 @@ export default function BrowseScreen({navigation, route}: any) {
 
   const currentItems = (): any[] => {
     const t = tabRef.current;
-    if (t === 'albums') return albumsRef.current;
-    if (t === 'recent') return recentAlbumsRef.current;
-    if (t === 'playlists') return playlistsRef.current;
-    if (t === 'presets') return presetsRef.current;
+    if (t === 'albums') {
+      return albumsRef.current;
+    }
+    if (t === 'recent') {
+      return recentAlbumsRef.current;
+    }
+    if (t === 'playlists') {
+      return playlistsRef.current;
+    }
+    if (t === 'presets') {
+      return presetsRef.current;
+    }
     return inputsRef.current;
   };
 
@@ -432,7 +451,9 @@ export default function BrowseScreen({navigation, route}: any) {
       }
       return;
     }
-    if (!isAlbumGridActive()) return;
+    if (!isAlbumGridActive()) {
+      return;
+    }
     // Scroll only when the focused row leaves the visible window, and only by
     // whole rows — horizontal moves within a row never scroll. This keeps
     // browsing smooth instead of re-centering on every keypress.
@@ -449,7 +470,9 @@ export default function BrowseScreen({navigation, route}: any) {
 
   const handlePlayAlbum = async (album: PlexAlbum) => {
     const c = clientRef.current;
-    if (!c || busyRef.current) return;
+    if (!c || busyRef.current) {
+      return;
+    }
     busyRef.current = true;
     setStatusMsg(`Loading "${album.title}"…`);
     try {
@@ -472,7 +495,9 @@ export default function BrowseScreen({navigation, route}: any) {
   // Random play across the recently added music: build a shuffled queue and go.
   const handleShuffleRecent = async () => {
     const c = clientRef.current;
-    if (!c || busyRef.current) return;
+    if (!c || busyRef.current) {
+      return;
+    }
     busyRef.current = true;
     setStatusMsg('Shuffling recent additions…');
     try {
@@ -497,7 +522,9 @@ export default function BrowseScreen({navigation, route}: any) {
   // otherwise a 30k-track playlist looks like it silently truncated.
   const handlePlayPlaylist = async (pl: PlexPlaylist) => {
     const c = clientRef.current;
-    if (!c || busyRef.current) return;
+    if (!c || busyRef.current) {
+      return;
+    }
     if (!pl.count) {
       setStatusMsg(`"${pl.title}" is empty`);
       return;
@@ -527,12 +554,17 @@ export default function BrowseScreen({navigation, route}: any) {
     // live `artistQuery` directly — use the functional updater to append to the
     // current value instead of the stale first-render '' (which made each key
     // replace the last).
-    setArtistQuery((q) => {
+    setArtistQuery(q => {
       let nq = q;
-      if (key.act === 'space') nq = q + ' ';
-      else if (key.act === 'del') nq = q.slice(0, -1);
-      else if (key.act === 'clear') nq = '';
-      else nq = q + key.v;
+      if (key.act === 'space') {
+        nq = q + ' ';
+      } else if (key.act === 'del') {
+        nq = q.slice(0, -1);
+      } else if (key.act === 'clear') {
+        nq = '';
+      } else {
+        nq = q + key.v;
+      }
       return nq.slice(0, 40);
     });
     // Query changed → results reset to the top.
@@ -544,12 +576,17 @@ export default function BrowseScreen({navigation, route}: any) {
 
   // Same as applyKey but for the album Search tab (its own query/results).
   const applySearchKey = (key: Key) => {
-    setSearchQuery((q) => {
+    setSearchQuery(q => {
       let nq = q;
-      if (key.act === 'space') nq = q + ' ';
-      else if (key.act === 'del') nq = q.slice(0, -1);
-      else if (key.act === 'clear') nq = '';
-      else nq = q + key.v;
+      if (key.act === 'space') {
+        nq = q + ' ';
+      } else if (key.act === 'del') {
+        nq = q.slice(0, -1);
+      } else if (key.act === 'clear') {
+        nq = '';
+      } else {
+        nq = q + key.v;
+      }
       return nq.slice(0, 40);
     });
     searchResIdxRef.current = 0;
@@ -581,7 +618,9 @@ export default function BrowseScreen({navigation, route}: any) {
   const activateContent = (i: number) => {
     const t = tabRef.current;
     const items = currentItems();
-    if (!items[i]) return;
+    if (!items[i]) {
+      return;
+    }
     if (t === 'albums' || t === 'recent') {
       handlePlayAlbum(items[i]);
     } else if (t === 'playlists') {
@@ -599,13 +638,19 @@ export default function BrowseScreen({navigation, route}: any) {
 
     if (az === 'keyboard') {
       const nav = navKeyboard(KEY_ROWS, kbPosRef.current, k);
-      if (nav.kind === 'move') setKb(nav.pos.row, nav.pos.col);
-      else if (nav.kind === 'press') applyKey(nav.key);
-      else if (nav.kind === 'exitLeft' || nav.kind === 'exitUp') setZone('tabs');
-      else if (nav.kind === 'exitDown') setZone('back');
-      else if (nav.kind === 'exitRight') {
+      if (nav.kind === 'move') {
+        setKb(nav.pos.row, nav.pos.col);
+      } else if (nav.kind === 'press') {
+        applyKey(nav.key);
+      } else if (nav.kind === 'exitLeft' || nav.kind === 'exitUp') {
+        setZone('tabs');
+      } else if (nav.kind === 'exitDown') {
+        setZone('back');
+      } else if (nav.kind === 'exitRight') {
         // Only cross into the results column when there is something there.
-        if (filteredArtistsRef.current.length) setArtistZone('results');
+        if (filteredArtistsRef.current.length) {
+          setArtistZone('results');
+        }
       }
       return;
     }
@@ -615,15 +660,23 @@ export default function BrowseScreen({navigation, route}: any) {
       const n = list.length;
       const ri = resIdxRef.current;
       if (k === 'up') {
-        if (ri > 0) setRes(ri - 1);
-        else setZone('tabs');
+        if (ri > 0) {
+          setRes(ri - 1);
+        } else {
+          setZone('tabs');
+        }
       } else if (k === 'down') {
-        if (ri < n - 1) setRes(ri + 1);
-        else setZone('back');
+        if (ri < n - 1) {
+          setRes(ri + 1);
+        } else {
+          setZone('back');
+        }
       } else if (k === 'left') {
         setArtistZone('keyboard');
       } else if (k === 'select') {
-        if (list[ri]) openArtist(list[ri]);
+        if (list[ri]) {
+          openArtist(list[ri]);
+        }
       }
       return;
     }
@@ -635,18 +688,31 @@ export default function BrowseScreen({navigation, route}: any) {
     const col = idx % COLS;
     const row = Math.floor(idx / COLS);
     if (k === 'left') {
-      if (col > 0) moveTo(idx - 1);
-      else backToSearch('results');
+      if (col > 0) {
+        moveTo(idx - 1);
+      } else {
+        backToSearch('results');
+      }
     } else if (k === 'right') {
-      if (col < COLS - 1 && idx + 1 < n) moveTo(idx + 1);
+      if (col < COLS - 1 && idx + 1 < n) {
+        moveTo(idx + 1);
+      }
     } else if (k === 'up') {
-      if (row > 0) moveTo(idx - COLS);
-      else backToSearch('results');
+      if (row > 0) {
+        moveTo(idx - COLS);
+      } else {
+        backToSearch('results');
+      }
     } else if (k === 'down') {
-      if (idx + COLS < n) moveTo(idx + COLS);
-      else setZone('back');
+      if (idx + COLS < n) {
+        moveTo(idx + COLS);
+      } else {
+        setZone('back');
+      }
     } else if (k === 'select') {
-      if (items[idx]) handlePlayAlbum(items[idx]);
+      if (items[idx]) {
+        handlePlayAlbum(items[idx]);
+      }
     }
   };
 
@@ -656,13 +722,19 @@ export default function BrowseScreen({navigation, route}: any) {
 
     if (sz === 'keyboard') {
       const nav = navKeyboard(KEY_ROWS, kbPosRef.current, k);
-      if (nav.kind === 'move') setKb(nav.pos.row, nav.pos.col);
-      else if (nav.kind === 'press') applySearchKey(nav.key);
-      else if (nav.kind === 'exitLeft' || nav.kind === 'exitUp') setZone('tabs');
-      else if (nav.kind === 'exitDown') setZone('back');
-      else if (nav.kind === 'exitRight') {
+      if (nav.kind === 'move') {
+        setKb(nav.pos.row, nav.pos.col);
+      } else if (nav.kind === 'press') {
+        applySearchKey(nav.key);
+      } else if (nav.kind === 'exitLeft' || nav.kind === 'exitUp') {
+        setZone('tabs');
+      } else if (nav.kind === 'exitDown') {
+        setZone('back');
+      } else if (nav.kind === 'exitRight') {
         // Only cross into the results column when there is something there.
-        if (filteredSearchRef.current.length) setSearchZone('results');
+        if (filteredSearchRef.current.length) {
+          setSearchZone('results');
+        }
       }
       return;
     }
@@ -672,15 +744,23 @@ export default function BrowseScreen({navigation, route}: any) {
     const n = list.length;
     const ri = searchResIdxRef.current;
     if (k === 'up') {
-      if (ri > 0) setSearchRes(ri - 1);
-      else setZone('tabs');
+      if (ri > 0) {
+        setSearchRes(ri - 1);
+      } else {
+        setZone('tabs');
+      }
     } else if (k === 'down') {
-      if (ri < n - 1) setSearchRes(ri + 1);
-      else setZone('back');
+      if (ri < n - 1) {
+        setSearchRes(ri + 1);
+      } else {
+        setZone('back');
+      }
     } else if (k === 'left') {
       setSearchZone('keyboard');
     } else if (k === 'select') {
-      if (list[ri]) handlePlayAlbum(list[ri]);
+      if (list[ri]) {
+        handlePlayAlbum(list[ri]);
+      }
     }
   };
 
@@ -706,18 +786,31 @@ export default function BrowseScreen({navigation, route}: any) {
     const col = idx % COLS;
     const row = Math.floor(idx / COLS);
     if (k === 'left') {
-      if (col > 0) moveTo(idx - 1);
-      else setZone('tabs');
+      if (col > 0) {
+        moveTo(idx - 1);
+      } else {
+        setZone('tabs');
+      }
     } else if (k === 'right') {
-      if (col < COLS - 1 && idx + 1 < n) moveTo(idx + 1);
+      if (col < COLS - 1 && idx + 1 < n) {
+        moveTo(idx + 1);
+      }
     } else if (k === 'up') {
-      if (row > 0) moveTo(idx - COLS);
-      else setRecentZone('shuffle'); // top row → up lands on Shuffle
+      if (row > 0) {
+        moveTo(idx - COLS);
+      } else {
+        setRecentZone('shuffle');
+      } // top row → up lands on Shuffle
     } else if (k === 'down') {
-      if (idx + COLS < n) moveTo(idx + COLS);
-      else setZone('back');
+      if (idx + COLS < n) {
+        moveTo(idx + COLS);
+      } else {
+        setZone('back');
+      }
     } else if (k === 'select') {
-      if (items[idx]) handlePlayAlbum(items[idx]);
+      if (items[idx]) {
+        handlePlayAlbum(items[idx]);
+      }
     }
   };
 
@@ -725,10 +818,14 @@ export default function BrowseScreen({navigation, route}: any) {
   // on the tabs/back zones and on the non-album tabs, so MENU does nothing
   // there rather than opening a detail view for something that isn't an album.
   const focusedAlbum = (): PlexAlbum | null => {
-    if (zoneRef.current !== 'content') return null;
+    if (zoneRef.current !== 'content') {
+      return null;
+    }
     const t = tabRef.current;
     const i = idxRef.current;
-    if (t === 'albums') return albumsRef.current[i] || null;
+    if (t === 'albums') {
+      return albumsRef.current[i] || null;
+    }
     if (t === 'recent') {
       return recentZoneRef.current === 'grid'
         ? recentAlbumsRef.current[i] || null
@@ -755,7 +852,9 @@ export default function BrowseScreen({navigation, route}: any) {
     // album outright is the common case and stays one keypress.
     if (k === 'menu') {
       const a = focusedAlbum();
-      if (a) navigation.navigate('Album', {album: a});
+      if (a) {
+        navigation.navigate('Album', {album: a});
+      }
       return;
     }
 
@@ -830,27 +929,44 @@ export default function BrowseScreen({navigation, route}: any) {
       const col = idx % COLS;
       const row = Math.floor(idx / COLS);
       if (k === 'left') {
-        if (col > 0) moveTo(idx - 1);
-        else setZone('tabs');
+        if (col > 0) {
+          moveTo(idx - 1);
+        } else {
+          setZone('tabs');
+        }
       } else if (k === 'right') {
-        if (col < COLS - 1 && idx + 1 < n) moveTo(idx + 1);
+        if (col < COLS - 1 && idx + 1 < n) {
+          moveTo(idx + 1);
+        }
       } else if (k === 'up') {
-        if (row > 0) moveTo(idx - COLS);
-        else setZone('tabs');
+        if (row > 0) {
+          moveTo(idx - COLS);
+        } else {
+          setZone('tabs');
+        }
       } else if (k === 'down') {
-        if (idx + COLS < n) moveTo(idx + COLS);
-        else setZone('back');
+        if (idx + COLS < n) {
+          moveTo(idx + COLS);
+        } else {
+          setZone('back');
+        }
       } else if (k === 'select') {
         activateContent(idx);
       }
     } else {
       // vertical list (presets / inputs)
       if (k === 'up') {
-        if (idx > 0) moveTo(idx - 1);
-        else setZone('tabs');
+        if (idx > 0) {
+          moveTo(idx - 1);
+        } else {
+          setZone('tabs');
+        }
       } else if (k === 'down') {
-        if (idx + 1 < n) moveTo(idx + 1);
-        else setZone('back');
+        if (idx + 1 < n) {
+          moveTo(idx + 1);
+        } else {
+          setZone('back');
+        }
       } else if (k === 'left') {
         setZone('tabs');
       } else if (k === 'select') {
@@ -865,6 +981,9 @@ export default function BrowseScreen({navigation, route}: any) {
       NativeModules.RemoteControl?.setCaptureDpad(true);
       const sub = DeviceEventEmitter.addListener('WiiMNavKey', onNav);
       return () => sub.remove();
+      // The D-pad listener is registered ONCE; onNav is re-created each render
+      // and listing it would tear down and re-add the listener continuously.
+      // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []),
   );
 
@@ -881,7 +1000,7 @@ export default function BrowseScreen({navigation, route}: any) {
       renderItem={({item, index: i}) => (
         <AlbumCard album={item} focused={focusedIdx === i} />
       )}
-      keyExtractor={(item) => item.ratingKey}
+      keyExtractor={item => item.ratingKey}
       extraData={focusedIdx}
       numColumns={COLS}
       columnWrapperStyle={styles.row}
@@ -898,7 +1017,7 @@ export default function BrowseScreen({navigation, route}: any) {
     />
   );
 
-  const renderListItem = ({item, index: i, label}: any) => {
+  const renderListItem = ({index: i, label}: any) => {
     const focused = zone === 'content' && index === i;
     return (
       <View style={[styles.item, focused && styles.itemFocused]}>
@@ -931,7 +1050,7 @@ export default function BrowseScreen({navigation, route}: any) {
           </View>
         );
       }}
-      keyExtractor={(item) => item.ratingKey}
+      keyExtractor={item => item.ratingKey}
       extraData={index}
       style={styles.resultsList}
       getItemLayout={(_d, i) => ({
@@ -1005,7 +1124,8 @@ export default function BrowseScreen({navigation, route}: any) {
               const f =
                 zone === 'content' && artistZone === 'results' && resIdx === i;
               return (
-                <View style={[styles.resultItem, f && styles.resultItemFocused]}>
+                <View
+                  style={[styles.resultItem, f && styles.resultItemFocused]}>
                   <Text style={styles.resultName} numberOfLines={1}>
                     {item.name}
                   </Text>
@@ -1013,7 +1133,7 @@ export default function BrowseScreen({navigation, route}: any) {
                 </View>
               );
             }}
-            keyExtractor={(item) => item.key}
+            keyExtractor={item => item.key}
             extraData={`${artistZone}:${resIdx}`}
             style={styles.resultsList}
             getItemLayout={(_d, i) => ({
@@ -1087,7 +1207,7 @@ export default function BrowseScreen({navigation, route}: any) {
               </View>
             );
           }}
-          keyExtractor={(item) => item.ratingKey}
+          keyExtractor={item => item.ratingKey}
           extraData={`${searchZone}:${searchResIdx}`}
           style={styles.resultsList}
           getItemLayout={(_d, i) => ({
@@ -1106,7 +1226,7 @@ export default function BrowseScreen({navigation, route}: any) {
   return (
     <View style={styles.container}>
       <View style={styles.tabs}>
-        {TABS.map((id) => {
+        {TABS.map(id => {
           const isActive = activeTab === id;
           const isFocused = zone === 'tabs' && isActive;
           return (
@@ -1224,7 +1344,7 @@ export default function BrowseScreen({navigation, route}: any) {
           renderItem={({item, index: i}) =>
             renderListItem({item, index: i, label: item})
           }
-          keyExtractor={(item) => String(item)}
+          keyExtractor={item => String(item)}
           style={styles.list}
         />
       )}

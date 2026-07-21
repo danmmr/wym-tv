@@ -27,13 +27,11 @@ export type KeyNav =
 // Move the on-screen keyboard cursor. Rows are ragged (the letter rows are 7
 // wide, the last row has 3 action keys), so a vertical move clamps the column
 // into the destination row rather than landing out of bounds.
-export function navKeyboard(
-  rows: KeyCell[][],
-  pos: KeyPos,
-  k: string,
-): KeyNav {
+export function navKeyboard(rows: KeyCell[][], pos: KeyPos, k: string): KeyNav {
   const row = rows[pos.row];
-  if (!row) return {kind: 'exitUp'};
+  if (!row) {
+    return {kind: 'exitUp'};
+  }
 
   switch (k) {
     case 'left':
@@ -45,7 +43,9 @@ export function navKeyboard(
         ? {kind: 'move', pos: {row: pos.row, col: pos.col + 1}}
         : {kind: 'exitRight'};
     case 'up': {
-      if (pos.row === 0) return {kind: 'exitUp'};
+      if (pos.row === 0) {
+        return {kind: 'exitUp'};
+      }
       const nr = pos.row - 1;
       return {
         kind: 'move',
@@ -53,7 +53,9 @@ export function navKeyboard(
       };
     }
     case 'down': {
-      if (pos.row >= rows.length - 1) return {kind: 'exitDown'};
+      if (pos.row >= rows.length - 1) {
+        return {kind: 'exitDown'};
+      }
       const nr = pos.row + 1;
       return {
         kind: 'move',
@@ -72,12 +74,12 @@ export function navKeyboard(
 // scroll is needed — callers compare against the old value and only scroll on a
 // change, which is what keeps browsing smooth instead of re-centering on every
 // keypress.
-export function scrollTopFor(
-  i: number,
-  top: number,
-  visible: number,
-): number {
-  if (i < top) return i;
-  if (i > top + visible - 1) return i - visible + 1;
+export function scrollTopFor(i: number, top: number, visible: number): number {
+  if (i < top) {
+    return i;
+  }
+  if (i > top + visible - 1) {
+    return i - visible + 1;
+  }
   return top;
 }

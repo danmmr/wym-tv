@@ -25,7 +25,9 @@ const DEFAULT_ACCENT = '#3b9eff';
 // (e.g. the MusicBrainz Cover Art Archive fallback) is left untouched.
 function isPrivateIp(ip: string): boolean {
   const p = ip.split('.').map(n => parseInt(n, 10));
-  if (p.length !== 4) return false;
+  if (p.length !== 4) {
+    return false;
+  }
   return (
     p[0] === 10 ||
     p[0] === 127 ||
@@ -36,7 +38,9 @@ function isPrivateIp(ip: string): boolean {
 
 function toFetchableUrl(url: string): string {
   const m = /^https:\/\/(\d{1,3}(?:\.\d{1,3}){3})(?::\d+)?\//.exec(url);
-  if (m && isPrivateIp(m[1])) return 'http://' + url.slice('https://'.length);
+  if (m && isPrivateIp(m[1])) {
+    return 'http://' + url.slice('https://'.length);
+  }
   return url;
 }
 
@@ -46,7 +50,9 @@ function clamp(n: number, lo: number, hi: number) {
 
 function hexToRgb(hex: string): [number, number, number] | null {
   const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim());
-  if (!m) return null;
+  if (!m) {
+    return null;
+  }
   const int = parseInt(m[1], 16);
   return [(int >> 16) & 255, (int >> 8) & 255, int & 255];
 }
@@ -74,7 +80,9 @@ function rgbToHsl(r: number, g: number, b: number): [number, number, number] {
         h = (r - g) / d + 4;
     }
     h *= 60;
-    if (h < 0) h += 360;
+    if (h < 0) {
+      h += 360;
+    }
   }
   return [h, s, l];
 }
@@ -86,12 +94,19 @@ function hslToHex(h: number, s: number, l: number): string {
   let r = 0;
   let g = 0;
   let b = 0;
-  if (h < 60) [r, g, b] = [c, x, 0];
-  else if (h < 120) [r, g, b] = [x, c, 0];
-  else if (h < 180) [r, g, b] = [0, c, x];
-  else if (h < 240) [r, g, b] = [0, x, c];
-  else if (h < 300) [r, g, b] = [x, 0, c];
-  else [r, g, b] = [c, 0, x];
+  if (h < 60) {
+    [r, g, b] = [c, x, 0];
+  } else if (h < 120) {
+    [r, g, b] = [x, c, 0];
+  } else if (h < 180) {
+    [r, g, b] = [0, c, x];
+  } else if (h < 240) {
+    [r, g, b] = [0, x, c];
+  } else if (h < 300) {
+    [r, g, b] = [x, 0, c];
+  } else {
+    [r, g, b] = [c, 0, x];
+  }
   const to = (v: number) =>
     Math.round((v + m) * 255)
       .toString(16)
@@ -103,10 +118,14 @@ function hslToHex(h: number, s: number, l: number): string {
 // enough saturation and a mid-high lightness so it pops on the dark background.
 function normalizeAccent(hex: string): string {
   const rgb = hexToRgb(hex);
-  if (!rgb) return DEFAULT_ACCENT;
+  if (!rgb) {
+    return DEFAULT_ACCENT;
+  }
   const [h, s, l] = rgbToHsl(rgb[0], rgb[1], rgb[2]);
   // A near-grey pick (no real hue) is not worth theming with — fall back.
-  if (s < 0.12) return DEFAULT_ACCENT;
+  if (s < 0.12) {
+    return DEFAULT_ACCENT;
+  }
   return hslToHex(h, clamp(s, 0.55, 0.95), clamp(l, 0.55, 0.66));
 }
 
@@ -115,7 +134,9 @@ function normalizeAccent(hex: string): string {
 // art-frame slideshow) can reuse the same picking and normalization without
 // writing to the player store.
 export async function accentFor(url: string): Promise<string | undefined> {
-  if (!url) return undefined;
+  if (!url) {
+    return undefined;
+  }
   try {
     const res = await ImageColors.getColors(toFetchableUrl(url), {
       cache: true,

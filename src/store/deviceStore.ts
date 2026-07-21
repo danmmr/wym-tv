@@ -1,4 +1,4 @@
-import { create } from 'zustand';
+import {create} from 'zustand';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export interface WiiMDevice {
@@ -22,28 +22,30 @@ interface DeviceStore {
   clearCache: () => void;
 }
 
-export const useDeviceStore = create<DeviceStore>((set) => ({
+export const useDeviceStore = create<DeviceStore>(set => ({
   devices: [],
   selectedDevice: null,
-  setDevices: (devices) => set({ devices }),
-  setSelectedDevice: (device) => {
-    set({ selectedDevice: device });
+  setDevices: devices => set({devices}),
+  setSelectedDevice: device => {
+    set({selectedDevice: device});
     if (device) {
-      AsyncStorage.setItem(SELECTED_KEY, JSON.stringify(device)).catch(() => {});
+      AsyncStorage.setItem(SELECTED_KEY, JSON.stringify(device)).catch(
+        () => {},
+      );
     } else {
       AsyncStorage.removeItem(SELECTED_KEY).catch(() => {});
     }
   },
-  addDevice: (device) =>
-    set((state) => ({
-      devices: [...state.devices.filter((d) => d.id !== device.id), device],
+  addDevice: device =>
+    set(state => ({
+      devices: [...state.devices.filter(d => d.id !== device.id), device],
     })),
-  removeDevice: (id) =>
-    set((state) => ({
-      devices: state.devices.filter((d) => d.id !== id),
+  removeDevice: id =>
+    set(state => ({
+      devices: state.devices.filter(d => d.id !== id),
     })),
   clearCache: () => {
-    set({ devices: [], selectedDevice: null });
+    set({devices: [], selectedDevice: null});
     AsyncStorage.removeItem(SELECTED_KEY).catch(() => {});
   },
 }));
@@ -53,10 +55,14 @@ export const useDeviceStore = create<DeviceStore>((set) => ({
 export async function loadPersistedDevice(): Promise<WiiMDevice | null> {
   try {
     const raw = await AsyncStorage.getItem(SELECTED_KEY);
-    if (!raw) return null;
+    if (!raw) {
+      return null;
+    }
     const dev = JSON.parse(raw) as WiiMDevice;
-    if (!dev || !dev.ip) return null;
-    useDeviceStore.setState({ selectedDevice: dev });
+    if (!dev || !dev.ip) {
+      return null;
+    }
+    useDeviceStore.setState({selectedDevice: dev});
     return dev;
   } catch {
     return null;

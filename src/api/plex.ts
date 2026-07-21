@@ -36,7 +36,9 @@ const tokenQuery = `X-Plex-Token=${PLEX.token}`;
 
 // Transcoded square cover art. size ~320 for grid thumbs, ~1000 for full art.
 export function artUrl(thumb: string, size = 1000): string {
-  if (!thumb) return '';
+  if (!thumb) {
+    return '';
+  }
   return (
     `${PLEX.baseUrl}/photo/:/transcode?width=${size}&height=${size}` +
     `&url=${encodeURIComponent(thumb)}&format=jpeg&${tokenQuery}`
@@ -71,7 +73,9 @@ const PAGE = 800;
 export async function loadAllAlbums(
   onProgress?: (loaded: number, total: number) => void,
 ): Promise<PlexAlbum[]> {
-  if (albumCache) return albumCache;
+  if (albumCache) {
+    return albumCache;
+  }
 
   const all: PlexAlbum[] = [];
   let start = 0;
@@ -80,7 +84,7 @@ export async function loadAllAlbums(
   while (start < total) {
     const mc = await plexGet(
       `/library/sections/${PLEX.musicSection}/all` +
-        `?type=9&excludeFields=summary` +
+        '?type=9&excludeFields=summary' +
         `&X-Plex-Container-Start=${start}&X-Plex-Container-Size=${PAGE}`,
     );
     if (total === Infinity) {
@@ -88,7 +92,9 @@ export async function loadAllAlbums(
     }
     const items: any[] = mc.Metadata || [];
     for (const d of items) {
-      if (d.ratingKey == null) continue;
+      if (d.ratingKey == null) {
+        continue;
+      }
       all.push({
         ratingKey: str(d.ratingKey),
         title: str(d.title),
@@ -100,7 +106,9 @@ export async function loadAllAlbums(
     }
     start += PAGE;
     onProgress?.(all.length, total === Infinity ? all.length : total);
-    if (items.length === 0) break; // safety against an endless loop
+    if (items.length === 0) {
+      break;
+    } // safety against an endless loop
   }
 
   albumCache = all;
@@ -123,7 +131,9 @@ function mulberry32(seed: number): () => number {
 export async function getShuffledAlbums(
   onProgress?: (loaded: number, total: number) => void,
 ): Promise<PlexAlbum[]> {
-  if (shuffledCache) return shuffledCache;
+  if (shuffledCache) {
+    return shuffledCache;
+  }
   const albums = await loadAllAlbums(onProgress);
   const seed = (Math.random() * 0xffffffff) >>> 0;
   const rng = mulberry32(seed);
@@ -151,16 +161,22 @@ let artistsCache: PlexArtist[] | null = null;
 export async function getArtists(
   onProgress?: (loaded: number, total: number) => void,
 ): Promise<PlexArtist[]> {
-  if (artistsCache) return artistsCache;
+  if (artistsCache) {
+    return artistsCache;
+  }
   const albums = await loadAllAlbums(onProgress);
   const map = new Map<string, PlexArtist>();
   for (const a of albums) {
     const key = a.artistKey || a.artist;
-    if (!key) continue;
+    if (!key) {
+      continue;
+    }
     const ex = map.get(key);
     if (ex) {
       ex.count++;
-      if (!ex.thumb && a.thumb) ex.thumb = a.thumb;
+      if (!ex.thumb && a.thumb) {
+        ex.thumb = a.thumb;
+      }
     } else {
       map.set(key, {
         key,
@@ -179,9 +195,11 @@ export async function getArtists(
 // All releases by one artist (by artistKey), oldest first. Pure in-memory
 // filter over the cached catalog.
 export function getAlbumsByArtist(key: string): PlexAlbum[] {
-  if (!albumCache) return [];
+  if (!albumCache) {
+    return [];
+  }
   return albumCache
-    .filter((a) => (a.artistKey || a.artist) === key)
+    .filter(a => (a.artistKey || a.artist) === key)
     .sort(
       (x, y) =>
         (x.year || '').localeCompare(y.year || '') ||
@@ -197,7 +215,9 @@ export async function getAlbumTracks(ratingKey: string): Promise<PlexTrack[]> {
   for (const t of items) {
     const media = (t.Media && t.Media[0]) || {};
     const part = (media.Part && media.Part[0]) || {};
-    if (!part.key) continue;
+    if (!part.key) {
+      continue;
+    }
     tracks.push({
       ratingKey: str(t.ratingKey),
       title: str(t.title),
@@ -218,7 +238,9 @@ export async function getAlbumTracks(ratingKey: string): Promise<PlexTrack[]> {
 function toQueueTrack(t: any): QueueTrack | null {
   const media = (t.Media && t.Media[0]) || {};
   const part = (media.Part && media.Part[0]) || {};
-  if (!part.key) return null;
+  if (!part.key) {
+    return null;
+  }
   const albumRk = str(t.parentRatingKey);
   const thumb = str(t.parentThumb || t.grandparentThumb || t.thumb);
   return {
@@ -242,7 +264,7 @@ export async function buildAlbumQueue(album: PlexAlbum): Promise<QueueTrack[]> {
   const tracks = await getAlbumTracks(album.ratingKey);
   const art = artUrl(album.thumb, 1000);
   const albumId = `/library/metadata/${album.ratingKey}/children`;
-  return tracks.map((t) => ({
+  return tracks.map(t => ({
     url: t.url,
     trackId: t.ratingKey ? `/library/metadata/${t.ratingKey}` : '',
     albumId,
@@ -259,21 +281,38 @@ export async function buildAlbumQueue(album: PlexAlbum): Promise<QueueTrack[]> {
 // it). `idOrPath` is the metaInfo trackId ("/library/metadata/123") or a bare
 // rating key. Returns a display label (FLAC/ALAC/MP3/…) or '' if unknown.
 const CODEC_LABEL: Record<string, string> = {
-  flac: 'FLAC', alac: 'ALAC', mp3: 'MP3', aac: 'AAC', wav: 'WAV',
-  aiff: 'AIFF', dsd: 'DSD', dsf: 'DSD', ape: 'APE', opus: 'Opus',
-  ogg: 'OGG', vorbis: 'OGG', wma: 'WMA', pcm: 'PCM',
+  flac: 'FLAC',
+  alac: 'ALAC',
+  mp3: 'MP3',
+  aac: 'AAC',
+  wav: 'WAV',
+  aiff: 'AIFF',
+  dsd: 'DSD',
+  dsf: 'DSD',
+  ape: 'APE',
+  opus: 'Opus',
+  ogg: 'OGG',
+  vorbis: 'OGG',
+  wma: 'WMA',
+  pcm: 'PCM',
 };
 
 export async function getTrackCodec(idOrPath: string): Promise<string> {
-  if (!idOrPath) return '';
+  if (!idOrPath) {
+    return '';
+  }
   const path = idOrPath.startsWith('/')
     ? idOrPath
     : `/library/metadata/${idOrPath}`;
   const mc = await plexGet(path);
   const t = (mc.Metadata || [])[0];
   const codec = t?.Media?.[0]?.audioCodec;
-  if (!codec) return '';
-  return CODEC_LABEL[String(codec).toLowerCase()] || String(codec).toUpperCase();
+  if (!codec) {
+    return '';
+  }
+  return (
+    CODEC_LABEL[String(codec).toLowerCase()] || String(codec).toUpperCase()
+  );
 }
 
 // --- "radio" stations (no Sonic Analysis) -----------------------------------
@@ -296,7 +335,9 @@ export async function buildStationQueue(
   const queue: QueueTrack[] = [];
   for (const t of mc.Metadata || []) {
     const qt = toQueueTrack(t);
-    if (qt) queue.push(qt);
+    if (qt) {
+      queue.push(qt);
+    }
   }
   return queue;
 }
@@ -304,16 +345,20 @@ export async function buildStationQueue(
 // Most recently ADDED albums, newest first — for the Browse "Recent" tab.
 // Deliberately NOT cached: reopening the tab should reflect fresh imports.
 // Same album shape as loadAllAlbums so the existing grid/play path just works.
-export async function getRecentlyAddedAlbums(limit = 100): Promise<PlexAlbum[]> {
+export async function getRecentlyAddedAlbums(
+  limit = 100,
+): Promise<PlexAlbum[]> {
   const mc = await plexGet(
     `/library/sections/${PLEX.musicSection}/all` +
-      `?type=9&excludeFields=summary&sort=addedAt:desc` +
+      '?type=9&excludeFields=summary&sort=addedAt:desc' +
       `&X-Plex-Container-Start=0&X-Plex-Container-Size=${limit}`,
   );
   const items: any[] = mc.Metadata || [];
   const out: PlexAlbum[] = [];
   for (const d of items) {
-    if (d.ratingKey == null) continue;
+    if (d.ratingKey == null) {
+      continue;
+    }
     out.push({
       ratingKey: str(d.ratingKey),
       title: str(d.title),
@@ -335,13 +380,15 @@ export async function buildRecentQueue(size = 60): Promise<QueueTrack[]> {
   const pool = Math.max(size * 3, 120);
   const mc = await plexGet(
     `/library/sections/${PLEX.musicSection}/all` +
-      `?type=10&sort=addedAt:desc` +
+      '?type=10&sort=addedAt:desc' +
       `&X-Plex-Container-Start=0&X-Plex-Container-Size=${pool}`,
   );
   const queue: QueueTrack[] = [];
   for (const t of mc.Metadata || []) {
     const qt = toQueueTrack(t);
-    if (qt) queue.push(qt);
+    if (qt) {
+      queue.push(qt);
+    }
   }
   for (let i = queue.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
@@ -375,7 +422,9 @@ export async function getPlaylists(): Promise<PlexPlaylist[]> {
   const mc = await plexGet('/playlists?playlistType=audio');
   const out: PlexPlaylist[] = [];
   for (const p of mc.Metadata || []) {
-    if (p.ratingKey == null) continue;
+    if (p.ratingKey == null) {
+      continue;
+    }
     out.push({
       ratingKey: str(p.ratingKey),
       title: str(p.title),
@@ -400,7 +449,9 @@ export async function buildPlaylistQueue(
   const queue: QueueTrack[] = [];
   for (const t of mc.Metadata || []) {
     const qt = toQueueTrack(t);
-    if (qt) queue.push(qt);
+    if (qt) {
+      queue.push(qt);
+    }
   }
   return queue;
 }
@@ -419,15 +470,19 @@ export async function getRandomAlbums(count = 30): Promise<PlexAlbum[]> {
     }
     return out.slice(0, count);
   };
-  if (albumCache && albumCache.length) return pick(albumCache);
+  if (albumCache && albumCache.length) {
+    return pick(albumCache);
+  }
   const mc = await plexGet(
     `/library/sections/${PLEX.musicSection}/all` +
-      `?type=9&excludeFields=summary&sort=random` +
+      '?type=9&excludeFields=summary&sort=random' +
       `&X-Plex-Container-Start=0&X-Plex-Container-Size=${count}`,
   );
   const out: PlexAlbum[] = [];
   for (const d of mc.Metadata || []) {
-    if (d.ratingKey == null || !d.thumb) continue;
+    if (d.ratingKey == null || !d.thumb) {
+      continue;
+    }
     out.push({
       ratingKey: str(d.ratingKey),
       title: str(d.title),
@@ -449,11 +504,13 @@ export async function getRandomAlbum(): Promise<PlexAlbum | null> {
   }
   const mc = await plexGet(
     `/library/sections/${PLEX.musicSection}/all` +
-      `?type=9&excludeFields=summary&sort=random` +
-      `&X-Plex-Container-Start=0&X-Plex-Container-Size=1`,
+      '?type=9&excludeFields=summary&sort=random' +
+      '&X-Plex-Container-Start=0&X-Plex-Container-Size=1',
   );
   const d = (mc.Metadata || [])[0];
-  if (!d || d.ratingKey == null) return null;
+  if (!d || d.ratingKey == null) {
+    return null;
+  }
   return {
     ratingKey: str(d.ratingKey),
     title: str(d.title),

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, {useCallback, useEffect, useRef, useState} from 'react';
 import {
   View,
   Text,
@@ -9,7 +9,7 @@ import {
   NativeModules,
   BackHandler,
 } from 'react-native';
-import { useFocusEffect } from '@react-navigation/native';
+import {useFocusEffect} from '@react-navigation/native';
 
 // 2D control grid for D-pad navigation: left/right within a row, up/down
 // between rows. Matches the on-screen layout for intuitive movement.
@@ -21,21 +21,26 @@ const ROWS: string[][] = [
   ['recent'],
   ['browse', 'settings', 'saver'],
 ];
-import { useDeviceStore } from '../store/deviceStore';
-import { usePlayerStore } from '../store/playerStore';
-import { WiiMClient } from '../api/wiim';
-import { getRandomAlbum, buildAlbumQueue, buildStationQueue, getTrackCodec } from '../api/plex';
-import type { StationKind } from '../api/plex';
-import { decodeHex } from '../api/hex';
-import { useAlbumArt } from '../hooks/useAlbumArt';
-import { useAccentColor, DEFAULT_ACCENT } from '../hooks/useAccentColor';
+import {useDeviceStore} from '../store/deviceStore';
+import {usePlayerStore} from '../store/playerStore';
+import {WiiMClient} from '../api/wiim';
+import {
+  getRandomAlbum,
+  buildAlbumQueue,
+  buildStationQueue,
+  getTrackCodec,
+} from '../api/plex';
+import type {StationKind} from '../api/plex';
+import {decodeHex} from '../api/hex';
+import {useAlbumArt} from '../hooks/useAlbumArt';
+import {useAccentColor, DEFAULT_ACCENT} from '../hooks/useAccentColor';
 import Screensaver, {VISUALIZERS} from '../components/Screensaver';
 import ArtFrame from '../components/ArtFrame';
 
-export default function NowPlayingScreen({ navigation }: any) {
-  const selectedDevice = useDeviceStore((s) => s.selectedDevice);
+export default function NowPlayingScreen({navigation}: any) {
+  const selectedDevice = useDeviceStore(s => s.selectedDevice);
   const playerState = usePlayerStore();
-  const [client, setClient] = useState<WiiMClient | null>(null);
+  const [, setClient] = useState<WiiMClient | null>(null);
   const [showScreensaver, setShowScreensaver] = useState(false);
   const [showArtFrame, setShowArtFrame] = useState(false);
   const showArtFrameRef = useRef(false);
@@ -57,7 +62,7 @@ export default function NowPlayingScreen({ navigation }: any) {
   const failCountRef = useRef(0);
   const inactivityTimerRef = useRef<NodeJS.Timeout>();
   const clientRef = useRef<WiiMClient | null>(null);
-  const { albumArt } = useAlbumArt();
+  const {albumArt} = useAlbumArt();
   // Derive a vibrant accent from the current cover art and mirror it into the
   // store; the whole player chrome tints to it, falling back to the default blue.
   useAccentColor();
@@ -76,7 +81,9 @@ export default function NowPlayingScreen({ navigation }: any) {
   const MAX_POLL_INTERVAL = 10000; // backoff ceiling while unreachable
 
   const fmt = (ms: number) => {
-    if (!ms || ms < 0) return '0:00';
+    if (!ms || ms < 0) {
+      return '0:00';
+    }
     const total = Math.floor(ms / 1000);
     const m = Math.floor(total / 60);
     const s = total % 60;
@@ -87,8 +94,12 @@ export default function NowPlayingScreen({ navigation }: any) {
   // depth/rate/bitrate from the WiiM metaInfo. Each part shows only if known.
   const formatLine = (): string => {
     const parts: string[] = [];
-    if (playerState.codec) parts.push(playerState.codec);
-    if (playerState.bitDepth) parts.push(`${playerState.bitDepth}-bit`);
+    if (playerState.codec) {
+      parts.push(playerState.codec);
+    }
+    if (playerState.bitDepth) {
+      parts.push(`${playerState.bitDepth}-bit`);
+    }
     if (playerState.sampleRate) {
       const hz = parseInt(playerState.sampleRate, 10);
       if (hz > 0) {
@@ -96,7 +107,9 @@ export default function NowPlayingScreen({ navigation }: any) {
         parts.push(`${Number.isInteger(khz) ? khz : khz.toFixed(1)} kHz`);
       }
     }
-    if (playerState.bitRate) parts.push(`${playerState.bitRate} kbps`);
+    if (playerState.bitRate) {
+      parts.push(`${playerState.bitRate} kbps`);
+    }
     return parts.join('  ·  ');
   };
 
@@ -110,10 +123,15 @@ export default function NowPlayingScreen({ navigation }: any) {
     const lossy = /MP3|AAC|OGG|VORB|WMA|OPUS|M4A/.test(codec);
     const lossless = /FLAC|ALAC|WAV|AIFF|PCM|DSD/.test(codec);
     const hiRes = depth >= 24 || rate > 48000;
-    if (hiRes && !lossy) return {label: 'HI-RES', bg: '#c9a13b', fg: '#0a0a0a'};
-    if (lossless || (!lossy && depth === 16 && rate > 0))
+    if (hiRes && !lossy) {
+      return {label: 'HI-RES', bg: '#c9a13b', fg: '#0a0a0a'};
+    }
+    if (lossless || (!lossy && depth === 16 && rate > 0)) {
       return {label: 'LOSSLESS', bg: '#2f6fb0', fg: '#ffffff'};
-    if (lossy) return {label: codec || 'LOSSY', bg: '#3a3a3a', fg: '#d0d0d0'};
+    }
+    if (lossy) {
+      return {label: codec || 'LOSSY', bg: '#3a3a3a', fg: '#d0d0d0'};
+    }
     return null;
   };
 
@@ -127,7 +145,9 @@ export default function NowPlayingScreen({ navigation }: any) {
       // Never let the shader screensaver replace the digital art frame while it
       // is up. exitArtFrame re-arms this timer, so the screensaver still kicks in
       // normally once the art frame is dismissed.
-      if (showArtFrameRef.current) return;
+      if (showArtFrameRef.current) {
+        return;
+      }
       setShowScreensaver(true);
     }, INACTIVITY_TIMEOUT);
   };
@@ -141,7 +161,9 @@ export default function NowPlayingScreen({ navigation }: any) {
   // key. Suspend the inactivity timer while it is up so the shader screensaver
   // does not queue up behind it, and restart it on exit.
   const enterArtFrame = () => {
-    if (inactivityTimerRef.current) clearTimeout(inactivityTimerRef.current);
+    if (inactivityTimerRef.current) {
+      clearTimeout(inactivityTimerRef.current);
+    }
     setShowArtFrame(true);
   };
   const exitArtFrame = () => {
@@ -154,7 +176,9 @@ export default function NowPlayingScreen({ navigation }: any) {
   // call; a failure here means the WiiM is unreachable (network drop, etc).
   const pollStatus = async (): Promise<boolean> => {
     const c = clientRef.current;
-    if (!c) return false;
+    if (!c) {
+      return false;
+    }
     try {
       // getMetaInfo carries sampleRate/bitDepth/bitRate but can fail (returns
       // a plain "Failed" string) when nothing is playing — keep it optional so
@@ -208,7 +232,9 @@ export default function NowPlayingScreen({ navigation }: any) {
     } else {
       failCountRef.current += 1;
       // Tolerate a single blip; only flag reconnecting after 2 misses.
-      if (failCountRef.current >= 2) setConnection('reconnecting');
+      if (failCountRef.current >= 2) {
+        setConnection('reconnecting');
+      }
     }
     scheduleNextPoll();
   };
@@ -216,11 +242,13 @@ export default function NowPlayingScreen({ navigation }: any) {
   // Look up the codec (FLAC/ALAC/MP3) from Plex when the track changes. Plex is
   // the only source for this; cache by trackId so we hit it once per track.
   const maybeFetchCodec = (trackId?: string) => {
-    if (!trackId || trackId === codecTrackRef.current) return;
+    if (!trackId || trackId === codecTrackRef.current) {
+      return;
+    }
     codecTrackRef.current = trackId;
     usePlayerStore.getState().setPlayerState({codec: undefined}); // clear stale
     getTrackCodec(trackId)
-      .then((codec) => {
+      .then(codec => {
         // Ignore if the track changed again while we were fetching.
         if (codecTrackRef.current === trackId && codec) {
           usePlayerStore.getState().setPlayerState({codec});
@@ -234,17 +262,25 @@ export default function NowPlayingScreen({ navigation }: any) {
   // length. We only append once per drain (refillAtRef) and never overlap.
   const maybeRefillStation = (c: WiiMClient, status: any) => {
     const sk = usePlayerStore.getState().stationKind;
-    if (!sk || refillingRef.current) return;
+    if (!sk || refillingRef.current) {
+      return;
+    }
     const plicount = parseInt(status.plicount, 10) || 0;
     const plicurr = parseInt(status.plicurr, 10) || 0;
-    if (plicount <= 0) return;
+    if (plicount <= 0) {
+      return;
+    }
     const remaining = plicount - plicurr;
-    if (remaining > REFILL_THRESHOLD) return;
-    if (plicount === refillAtRef.current) return; // append not yet reflected
+    if (remaining > REFILL_THRESHOLD) {
+      return;
+    }
+    if (plicount === refillAtRef.current) {
+      return;
+    } // append not yet reflected
     refillingRef.current = true;
     refillAtRef.current = plicount;
     buildStationQueue(sk, STATION_SIZE)
-      .then((q) => (q.length ? c.appendQueue(q) : undefined))
+      .then(q => (q.length ? c.appendQueue(q) : undefined))
       .catch(() => {
         refillAtRef.current = 0; // allow a retry on next drain
       })
@@ -297,6 +333,9 @@ export default function NowPlayingScreen({ navigation }: any) {
         clearTimeout(inactivityTimerRef.current);
       }
     };
+    // Boot effect: runs once per device. These are re-created each render, so
+    // listing them would restart the poll loop continuously.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedDevice, navigation]);
 
   const handlePlayPause = () =>
@@ -448,96 +487,107 @@ export default function NowPlayingScreen({ navigation }: any) {
   // the D-pad at once.
   useFocusEffect(
     useCallback(() => {
-    NativeModules.RemoteControl?.setCaptureDpad(true);
+      NativeModules.RemoteControl?.setCaptureDpad(true);
 
-    const navSub = DeviceEventEmitter.addListener('WiiMNavKey', (k: string) => {
-      if (showArtFrameRef.current) {
-        exitArtFrame(); // any key dismisses the art frame
-        return;
-      }
-      if (showScreensaverRef.current) {
-        // While the screensaver is up, each D-pad direction selects a visualizer
-        // (matches VISUALIZERS order: plasma, flow, starfield, metaball).
-        // OK/center and BACK dismiss it; the menu/options button toggles the
-        // album-art pulse. Any other key also dismisses.
-        if (k === 'left') {
-          setVizIndex(0); // plasma
-        } else if (k === 'right') {
-          setVizIndex(1); // flow
-        } else if (k === 'up') {
-          setVizIndex(2); // starfield / warp tunnel
-        } else if (k === 'down') {
-          setVizIndex(3); // metaball / lava lamp
-        } else if (k === 'select') {
-          handleScreensaverExit(); // OK / center returns to Now Playing
-        } else if (k === 'menu') {
-          setShowProgressRing(p => !p); // menu button toggles the time-left ring
-        } else {
-          handleScreensaverExit();
-        }
-        return;
-      }
-      resetInactivityTimer();
-      const {row, col} = focusPosRef.current;
-      if (k === 'left') {
-        setFocusCol(Math.max(0, col - 1));
-      } else if (k === 'right') {
-        setFocusCol(Math.min(ROWS[row].length - 1, col + 1));
-      } else if (k === 'up') {
-        const nr = Math.max(0, row - 1);
-        setFocusRow(nr);
-        setFocusCol(c => Math.min(c, ROWS[nr].length - 1));
-      } else if (k === 'down') {
-        const nr = Math.min(ROWS.length - 1, row + 1);
-        setFocusRow(nr);
-        setFocusCol(c => Math.min(c, ROWS[nr].length - 1));
-      } else if (k === 'select') {
-        const {row: r, col: c} = focusPosRef.current;
-        activate(ROWS[r][c]);
-      } else if (k === 'menu') {
-        enterArtFrame(); // the ☰/options button opens the digital art frame
-      }
-    });
+      const navSub = DeviceEventEmitter.addListener(
+        'WiiMNavKey',
+        (k: string) => {
+          if (showArtFrameRef.current) {
+            exitArtFrame(); // any key dismisses the art frame
+            return;
+          }
+          if (showScreensaverRef.current) {
+            // While the screensaver is up, each D-pad direction selects a visualizer
+            // (matches VISUALIZERS order: plasma, flow, starfield, metaball).
+            // OK/center and BACK dismiss it; the menu/options button toggles the
+            // album-art pulse. Any other key also dismisses.
+            if (k === 'left') {
+              setVizIndex(0); // plasma
+            } else if (k === 'right') {
+              setVizIndex(1); // flow
+            } else if (k === 'up') {
+              setVizIndex(2); // starfield / warp tunnel
+            } else if (k === 'down') {
+              setVizIndex(3); // metaball / lava lamp
+            } else if (k === 'select') {
+              handleScreensaverExit(); // OK / center returns to Now Playing
+            } else if (k === 'menu') {
+              setShowProgressRing(p => !p); // menu button toggles the time-left ring
+            } else {
+              handleScreensaverExit();
+            }
+            return;
+          }
+          resetInactivityTimer();
+          const {row, col} = focusPosRef.current;
+          if (k === 'left') {
+            setFocusCol(Math.max(0, col - 1));
+          } else if (k === 'right') {
+            setFocusCol(Math.min(ROWS[row].length - 1, col + 1));
+          } else if (k === 'up') {
+            const nr = Math.max(0, row - 1);
+            setFocusRow(nr);
+            setFocusCol(c => Math.min(c, ROWS[nr].length - 1));
+          } else if (k === 'down') {
+            const nr = Math.min(ROWS.length - 1, row + 1);
+            setFocusRow(nr);
+            setFocusCol(c => Math.min(c, ROWS[nr].length - 1));
+          } else if (k === 'select') {
+            const {row: r, col: c} = focusPosRef.current;
+            activate(ROWS[r][c]);
+          } else if (k === 'menu') {
+            enterArtFrame(); // the ☰/options button opens the digital art frame
+          }
+        },
+      );
 
-    const mediaSub = DeviceEventEmitter.addListener(
-      'WiiMRemoteKey',
-      (key: string) => {
+      const mediaSub = DeviceEventEmitter.addListener(
+        'WiiMRemoteKey',
+        (key: string) => {
+          if (showArtFrameRef.current) {
+            exitArtFrame();
+            return;
+          }
+          if (showScreensaverRef.current) {
+            handleScreensaverExit();
+            return;
+          }
+          if (key === 'playPause') {
+            handlePlayPause();
+          } else if (key === 'next') {
+            handleNext();
+          } else if (key === 'prev') {
+            handlePrev();
+          }
+        },
+      );
+
+      // Hardware BACK exits the screensaver and is consumed so it does not close
+      // the app. When the screensaver is not up, fall through to default behavior.
+      const backSub = BackHandler.addEventListener('hardwareBackPress', () => {
         if (showArtFrameRef.current) {
           exitArtFrame();
-          return;
+          return true;
         }
         if (showScreensaverRef.current) {
           handleScreensaverExit();
-          return;
+          return true;
         }
-        if (key === 'playPause') handlePlayPause();
-        else if (key === 'next') handleNext();
-        else if (key === 'prev') handlePrev();
-      },
-    );
+        return false;
+      });
 
-    // Hardware BACK exits the screensaver and is consumed so it does not close
-    // the app. When the screensaver is not up, fall through to default behavior.
-    const backSub = BackHandler.addEventListener('hardwareBackPress', () => {
-      if (showArtFrameRef.current) {
-        exitArtFrame();
-        return true;
-      }
-      if (showScreensaverRef.current) {
-        handleScreensaverExit();
-        return true;
-      }
-      return false;
-    });
-
-    // Note: we intentionally do NOT setCaptureDpad(false) on blur. Whichever
-    // screen gains focus sets the desired value on focus, which avoids a race
-    // where the old screen's blur cleanup runs after the new screen's focus.
-    return () => {
-      navSub.remove();
-      mediaSub.remove();
-      backSub.remove();
-    };
+      // Note: we intentionally do NOT setCaptureDpad(false) on blur. Whichever
+      // screen gains focus sets the desired value on focus, which avoids a race
+      // where the old screen's blur cleanup runs after the new screen's focus.
+      return () => {
+        navSub.remove();
+        mediaSub.remove();
+        backSub.remove();
+      };
+      // The D-pad listener is registered ONCE and reads live values through
+      // refs. Listing these handlers would re-register it on every render — the
+      // exact bug that made Browse silently stop playing.
+      // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []),
   );
 
@@ -559,7 +609,7 @@ export default function NowPlayingScreen({ navigation }: any) {
     <View style={styles.container}>
       {albumArt ? (
         <Image
-          source={{ uri: albumArt }}
+          source={{uri: albumArt}}
           style={styles.bg}
           resizeMode="cover"
           blurRadius={8}
@@ -569,7 +619,9 @@ export default function NowPlayingScreen({ navigation }: any) {
 
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.navigate('Discovery')}>
-          <Text style={[styles.deviceButton, {color: accent}]}>{selectedDevice?.name}</Text>
+          <Text style={[styles.deviceButton, {color: accent}]}>
+            {selectedDevice?.name}
+          </Text>
         </TouchableOpacity>
         {connection === 'reconnecting' ? (
           <Text style={styles.reconnecting}>⟳ reconnecting…</Text>
@@ -580,7 +632,9 @@ export default function NowPlayingScreen({ navigation }: any) {
 
       <View style={styles.infoContainer}>
         <Text style={styles.title}>{playerState.title}</Text>
-        <Text style={[styles.artist, {color: accent}]}>{playerState.artist}</Text>
+        <Text style={[styles.artist, {color: accent}]}>
+          {playerState.artist}
+        </Text>
         <Text style={styles.album}>{playerState.album}</Text>
         {resTier() || formatLine() ? (
           <View style={styles.formatRow}>
@@ -622,17 +676,32 @@ export default function NowPlayingScreen({ navigation }: any) {
       </View>
 
       <View style={styles.controls}>
-        <View style={[styles.button, {backgroundColor: accent}, focusedKey === 'prev' && styles.buttonFocused]}>
+        <View
+          style={[
+            styles.button,
+            {backgroundColor: accent},
+            focusedKey === 'prev' && styles.buttonFocused,
+          ]}>
           <Text style={styles.buttonText}>⏮ Prev</Text>
         </View>
 
-        <View style={[styles.button, {backgroundColor: accent}, focusedKey === 'play' && styles.buttonFocused]}>
+        <View
+          style={[
+            styles.button,
+            {backgroundColor: accent},
+            focusedKey === 'play' && styles.buttonFocused,
+          ]}>
           <Text style={styles.buttonText}>
             {playerState.status === 'play' ? '⏸ Pause' : '▶ Play'}
           </Text>
         </View>
 
-        <View style={[styles.button, {backgroundColor: accent}, focusedKey === 'next' && styles.buttonFocused]}>
+        <View
+          style={[
+            styles.button,
+            {backgroundColor: accent},
+            focusedKey === 'next' && styles.buttonFocused,
+          ]}>
           <Text style={styles.buttonText}>Next ⏭</Text>
         </View>
       </View>
@@ -773,7 +842,7 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    transform: [{ scale: 1.1 }],
+    transform: [{scale: 1.1}],
   },
   scrim: {
     position: 'absolute',

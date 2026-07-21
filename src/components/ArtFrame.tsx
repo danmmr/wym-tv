@@ -3,7 +3,6 @@ import {
   View,
   Text,
   StyleSheet,
-  Image,
   Dimensions,
   Animated,
   Easing,
@@ -53,21 +52,29 @@ function useSlideshow(active: boolean) {
 
     const show = async (album: PlexAlbum) => {
       const uri = artUrl(album.thumb, 1000);
-      if (cancelled) return;
+      if (cancelled) {
+        return;
+      }
       setSlideArt(uri);
       // Accent trails the image by a frame or two; that's fine, the glow easing
       // in just after the art lands reads as intentional.
       const a = await accentFor(uri);
-      if (!cancelled) setSlideAccent(a);
+      if (!cancelled) {
+        setSlideAccent(a);
+      }
     };
 
     const advance = async () => {
-      if (cancelled) return;
+      if (cancelled) {
+        return;
+      }
       // Refill when the batch runs out (or on first run).
       if (idxRef.current >= albumsRef.current.length) {
         try {
           const batch = await getRandomAlbums(BATCH);
-          if (cancelled) return;
+          if (cancelled) {
+            return;
+          }
           albumsRef.current = batch.filter(a => a.thumb);
           idxRef.current = 0;
         } catch {
@@ -76,14 +83,20 @@ function useSlideshow(active: boolean) {
         }
       }
       const album = albumsRef.current[idxRef.current++];
-      if (album) await show(album);
-      if (!cancelled) timer = setTimeout(advance, SLIDE_MS);
+      if (album) {
+        await show(album);
+      }
+      if (!cancelled) {
+        timer = setTimeout(advance, SLIDE_MS);
+      }
     };
 
     advance();
     return () => {
       cancelled = true;
-      if (timer) clearTimeout(timer);
+      if (timer) {
+        clearTimeout(timer);
+      }
     };
   }, [active]);
 
@@ -152,10 +165,14 @@ export default function ArtFrame() {
   const prevArtRef = useRef('');
   const fade = useRef(new Animated.Value(1)).current;
   useEffect(() => {
-    if (!art || art === prevArtRef.current) return;
+    if (!art || art === prevArtRef.current) {
+      return;
+    }
     const outgoing = prevArtRef.current;
     prevArtRef.current = art;
-    if (!outgoing) return; // first image just appears
+    if (!outgoing) {
+      return;
+    } // first image just appears
     setFading(outgoing);
     fade.setValue(0);
     Animated.timing(fade, {
@@ -164,13 +181,24 @@ export default function ArtFrame() {
       easing: Easing.inOut(Easing.quad),
       useNativeDriver: true,
     }).start(({finished}) => {
-      if (finished) setFading('');
+      if (finished) {
+        setFading('');
+      }
     });
   }, [art, fade]);
 
-  const scale = animZ.interpolate({inputRange: [0, 1], outputRange: [1.06, 1.14]});
-  const translateX = animX.interpolate({inputRange: [0, 1], outputRange: [-42, 42]});
-  const translateY = animY.interpolate({inputRange: [0, 1], outputRange: [34, -34]});
+  const scale = animZ.interpolate({
+    inputRange: [0, 1],
+    outputRange: [1.06, 1.14],
+  });
+  const translateX = animX.interpolate({
+    inputRange: [0, 1],
+    outputRange: [-42, 42],
+  });
+  const translateY = animY.interpolate({
+    inputRange: [0, 1],
+    outputRange: [34, -34],
+  });
 
   // The framed art is a square sized to the screen height so it stays fully on
   // screen with breathing room; the blurred fill behind it hides the letterbox.
@@ -184,10 +212,15 @@ export default function ArtFrame() {
           {!!fading && (
             <Animated.Image
               source={{uri: fading}}
-              style={[styles.bg, {opacity: fade.interpolate({
-                inputRange: [0, 1],
-                outputRange: [1, 0],
-              })}]}
+              style={[
+                styles.bg,
+                {
+                  opacity: fade.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [1, 0],
+                  }),
+                },
+              ]}
               resizeMode="cover"
               blurRadius={40}
             />
@@ -212,20 +245,21 @@ export default function ArtFrame() {
             ]}>
             {/* Accent glow: an inflated, tinted panel behind the art. */}
             <View
-              style={[
-                styles.glow,
-                {backgroundColor: tint, shadowColor: tint},
-              ]}
+              style={[styles.glow, {backgroundColor: tint, shadowColor: tint}]}
             />
             {!!fading && (
               <Animated.Image
                 source={{uri: fading}}
-                style={[styles.art, styles.artStacked, {
-                  opacity: fade.interpolate({
-                    inputRange: [0, 1],
-                    outputRange: [1, 0],
-                  }),
-                }]}
+                style={[
+                  styles.art,
+                  styles.artStacked,
+                  {
+                    opacity: fade.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [1, 0],
+                    }),
+                  },
+                ]}
                 resizeMode="cover"
               />
             )}
@@ -249,7 +283,14 @@ export default function ArtFrame() {
 
 const styles = StyleSheet.create({
   container: {flex: 1, backgroundColor: '#050505', overflow: 'hidden'},
-  bg: {position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, transform: [{scale: 1.15}]},
+  bg: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    transform: [{scale: 1.15}],
+  },
   scrim: {
     position: 'absolute',
     top: 0,

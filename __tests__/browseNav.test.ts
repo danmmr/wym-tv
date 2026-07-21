@@ -1,8 +1,7 @@
 import {navKeyboard, scrollTopFor, KeyCell} from '../src/screens/browseNav';
 
 // Mirrors the real layout: four ragged letter rows then a 3-key action row.
-const letters = (s: string): KeyCell[] =>
-  s.split('').map(c => ({l: c, v: c}));
+const letters = (s: string): KeyCell[] => s.split('').map(c => ({l: c, v: c}));
 const ROWS: KeyCell[][] = [
   letters('ABCDEFG'),
   letters('HIJKLMN'),

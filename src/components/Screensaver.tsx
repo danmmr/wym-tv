@@ -29,15 +29,23 @@ import {usePlayerStore} from '../store/playerStore';
 
 const {width, height} = Dimensions.get('window');
 
-// The full-screen SkSL shaders are GPU fill-rate bound on the Fire Stick's Mali
-// GPU - at native 1080p (~2.07M px) the spiral tunnel runs ~35fps and reads as
-// jerky. We render the background visualizer into a smaller canvas and let the
-// GPU upscale it at composite time (a cheap bilinear blit, NOT a re-raster), so
-// the shader only runs over ~0.92M px. Measured: locked 60fps. The continuous
-// sin/cos fields are indistinguishable upscaled. Album art + clock are separate
-// full-res canvases, so they stay crisp. uv is normalized by resolution.y, so
-// the look is identical at any DOWNSCALE.
-const DOWNSCALE = 1.5; // 1920x1080 -> 1280x720 backing
+// The full-screen SkSL shaders run on the Fire Stick's Mali GPU. We render the
+// background visualizer into a smaller canvas and let the GPU upscale it at
+// composite time (a cheap bilinear blit, NOT a re-raster). Album art + clock are
+// separate full-res canvases, so they stay crisp. uv is normalized by
+// resolution.y, so the look is identical at any DOWNSCALE.
+//
+// 720p because native 1080p looks no different on this panel from across a
+// room, and costs 2.25x the fill for it. Native IS affordable now (measured 6ms
+// GPU against a 16.7ms budget at 60fps) — an earlier note here claimed it was
+// not viable, based on a reading of 13 missed vsyncs and a 4950ms 90th
+// percentile that turned out to be a one-off stall, not a fill-rate limit. So
+// this is a "no benefit" call, not a "can't afford it" one.
+//
+// Note `width`/`height` are DP: the window is 960x540 dp on the 1080p panel
+// (density 320, PixelRatio 2). So DOWNSCALE 1.5 gives a 640x360 dp canvas,
+// which backs at 1280x720 physical pixels.
+const DOWNSCALE = 1.5; // 640x360 dp canvas -> 1280x720 physical
 const LOW_W = Math.round(width / DOWNSCALE);
 const LOW_H = Math.round(height / DOWNSCALE);
 
@@ -60,17 +68,19 @@ float ign(float2 p) {
   return fract(52.9829189 * fract(dot(p, float2(0.06711056, 0.00583715))));
 }
 
-// Per-pixel dither, added to the final colour. Two artefacts need breaking up,
-// and both only became visible once the palette started following the album art
-// (a single-hue ramp has far smoother gradients than the old multi-hue sweep,
-// and smooth gradients are exactly where these show):
-//   1. 8-bit quantisation banding across a slow gradient.
-//   2. The DOWNSCALE=1.5 upscale lattice. 2 source pixels map to 3 screen
-//      pixels, so the resample beats at a 3px period and reads as a regular
-//      diagonal cross-hatch. Noise breaks the regularity, which is what makes
-//      it read as texture instead of a grid.
-// Static (no time term) on purpose: a temporally varying dither shimmers, and
-// the canvas is frame-capped, which would make the shimmer strobe.
+// Per-pixel dither, added to the final colour, to soften gradient contouring.
+//
+// It does NOT remove the fine diagonal weave in the field. That weave was
+// measured on a build from before the palette change and is present there too
+// (in fact with a worse flat-run score), so it long predates album-accent
+// theming. It is also invariant to DOWNSCALE — it looks the same at 1.0, 1.5
+// and 2.0 — so it is not the upscale resample beat either. What the single-hue
+// palette changed is only how VISIBLE it is: the old blue-to-red sweep had
+// enough chroma contrast to pull the eye off it. Don't spend time re-testing
+// resolutions or dither amplitudes on it; that ground is covered.
+//
+// Static (no time term) on purpose: a temporally varying dither shimmers, which
+// would read as noise crawling over the field.
 float3 dither(float2 fragCoord) {
   return float3((ign(fragCoord) - 0.5) * ${(3.0 / 255).toFixed(6)});
 }
@@ -245,8 +255,11 @@ half4 main(float2 fragCoord) {
 
   // Spiral arms + counter-arms + rings, all pure sin of continuous depth -> no
   // cells, no popping, smooth at any speed. NO per-pixel loop, so it stays cheap.
-  float arms   = 0.5 + 0.5 * sin(pa * 5.0 + depth * 3.0);
-  float detail = 0.5 + 0.5 * sin(pa * 9.0 - depth * 2.0);
+  // A very slow angular drift on the arms (constant rate, not a speed change) so
+  // the tunnel's spiral never lines back up with where it was — same reason as
+  // the metaball frequencies above.
+  float arms   = 0.5 + 0.5 * sin(pa * 5.0 + depth * 3.0 + t * 0.0371);
+  float detail = 0.5 + 0.5 * sin(pa * 9.0 - depth * 2.0 - t * 0.0237);
   float rings  = 0.5 + 0.5 * sin(depth * 6.2832);
 
   // Glints: bright points where a spiral arm and a fast ring coincide - these
@@ -281,16 +294,23 @@ half4 main(float2 fragCoord) {
   float2 uv = fragCoord / resolution;
   float aspect = resolution.x / resolution.y;
   float2 p = float2(uv.x * aspect, uv.y);
-  float t = time * 0.2;
+  // 0.45, up from 0.20. The blobs were slow enough to look stalled once the
+  // variable-speed breathing was removed and could no longer carry them.
+  float t = time * 0.45;
 
   float field = 0.0;
   for (int i = 0; i < 5; i++) {
     float fi = float(i);
+    // Incommensurate frequencies (irrational ratios), so the blobs never all
+    // return to their starting arrangement at once. With the round numbers this
+    // used to use (0.6 / 0.4 / 0.15 / 1.0) the whole configuration recurred on a
+    // fixed cycle and visibly "started over" — the variable-speed breathing that
+    // was removed had been smearing that boundary and hiding it.
     float2 c = float2(
-      0.5 * aspect + 0.35 * aspect * sin(t * 0.6 + fi * 1.7),
-      0.5 + 0.42 * sin(t * 0.4 + fi * 2.3) * cos(t * 0.15 + fi)
+      0.5 * aspect + 0.35 * aspect * sin(t * 0.6131 + fi * 1.7),
+      0.5 + 0.42 * sin(t * 0.4373 + fi * 2.3) * cos(t * 0.1597 + fi)
     );
-    float rad = 0.10 + 0.05 * sin(t + fi);
+    float rad = 0.10 + 0.05 * sin(t * 0.9283 + fi);
     float2 d = p - c;
     field += (rad * rad) / (dot(d, d) + 0.0008);
   }
@@ -334,7 +354,14 @@ function makeCirclePath() {
 // identical from the couch, and halving every canvas's redraw rate halves the
 // screensaver's continuous CPU/GPU load and heat (the multi-hour
 // throttle/lockup driver on the 1.7GB Fire Stick).
-const SAVER_FPS = 30;
+// 60. Measured with a single canvas at 720p: 156 frames/5s (an exact, evenly
+// paced 30) with 0 missed vsyncs and a GPU time of 4ms against a 33ms budget —
+// so at 30 the hardware was idle 88% of the time and the warp tunnel STILL read
+// as sluggish. Nothing was struggling; 30 is simply too low a sample rate for
+// fast motion. Going to 60 takes the GPU duty cycle from ~12% to ~24%, which is
+// nowhere near the load that caused the original lockups (58% CPU sustained,
+// before both the half-res canvas and the cap existed).
+const SAVER_FPS = 60;
 
 // Drop-in replacement for skia's useClock (shared value, ms) that only writes
 // when the quantized frame advances. Derived values reading it - and the
@@ -344,12 +371,44 @@ const SAVER_FPS = 30;
 // must use this, not useClock - one ungated 60fps canvas keeps the whole
 // window presenting at 60.
 function useCappedClock(fps: number) {
-  const t = useSharedValue(0);
-  const stepMs = 1000 / fps;
+  const t = useSharedValue(0); // published, ms — what consumers read
+  const acc = useSharedValue(0); // accumulator, advanced every frame
+  const n = useSharedValue(0);
+  const every = Math.max(1, Math.round(60 / fps));
   useFrameCallback(info => {
-    const q = Math.floor(info.timestamp / stepMs) * stepMs;
-    if (q !== t.value) {
-      t.value = q;
+    // ACCUMULATE elapsed time rather than reading a clock off `info`. Both
+    // obvious choices are wrong here:
+    //
+    //   info.timestamp           — absolute, so it never restarts, but it is
+    //                              milliseconds since a far-off origin. /1000
+    //                              lands where float32 (the `time` uniform in
+    //                              SkSL) has ~7 significant digits, so motion
+    //                              quantises into visible steps and sin() of a
+    //                              large argument degrades badly. This is what
+    //                              made the whole screensaver look sluggish and
+    //                              put a fixed weave over the field.
+    //
+    //   info.timeSinceFirstFrame — small, but measured from THIS frame
+    //                              callback's registration. If the callback is
+    //                              ever re-created it restarts at zero, and
+    //                              every animation on this clock snaps back to
+    //                              its start at the same instant.
+    //
+    // Summing per-frame deltas into a shared value gives both properties: the
+    // accumulator persists across re-renders and re-registration, and it starts
+    // at zero so it stays precise in float32 for hours.
+    const dt = info.timeSincePreviousFrame ?? 0;
+    // A re-registered callback reports a null or very large first delta; skip
+    // it rather than jumping the clock forward.
+    acc.value = acc.value + (dt > 0 && dt < 100 ? dt : 0);
+
+    // Gate on vsync COUNT, not a millisecond grid: flooring onto a 33.3ms grid
+    // while vsync ticks every ~16.67ms advanced the clock 2 vsyncs apart, then
+    // 3, then 2 — an exact average with uneven spacing, which reads as stutter.
+    n.value = n.value + 1;
+    if (n.value >= every) {
+      n.value = 0;
+      t.value = acc.value;
     }
   });
   return t;
@@ -391,13 +450,27 @@ function AlbumArt({uri, bpm, pulseEnabled, trackProgress, accent}: {uri: string;
   // Animated values run on the UI thread every frame via the reanimated clock.
   // Reading clock.value inside useDerivedValue is what makes the ring actually
   // pulse - computing it in the JS render body froze it at a single sample.
+  // Wandering orbit. The periods are deliberately NOT round numbers: 17s and
+  // 13s are both integers, so that Lissajous closed every 221s and the art
+  // snapped back to exactly where it started — visible as the drift "getting
+  // pulled back" when the loop ended. Incommensurate periods never close, so it
+  // keeps exploring. Each axis also carries a small faster term, which fills the
+  // interior of the box instead of tracing the same thin figure repeatedly.
   const orbitX = useDerivedValue(() => {
     const t = clock.value / 1000;
-    return ((Math.sin((2 * Math.PI * t) / 17) + 1) / 2) * (width - ART_SIZE - 120) + 60;
+    const u =
+      (Math.sin((2 * Math.PI * t) / 17.0) +
+        0.22 * Math.sin((2 * Math.PI * t) / 6.7331)) /
+      1.22;
+    return ((u + 1) / 2) * (width - ART_SIZE - 120) + 60;
   }, [clock]);
   const orbitY = useDerivedValue(() => {
     const t = clock.value / 1000;
-    return ((Math.cos((2 * Math.PI * t) / 13) + 1) / 2) * (height - ART_SIZE - 120) + 60;
+    const u =
+      (Math.cos((2 * Math.PI * t) / 12.7913) +
+        0.22 * Math.cos((2 * Math.PI * t) / 5.3187)) /
+      1.22;
+    return ((u + 1) / 2) * (height - ART_SIZE - 120) + 60;
   }, [clock]);
   const beat = useDerivedValue(() => {
     const t = clock.value / 1000;
@@ -527,7 +600,12 @@ function VisualizerCanvas({
         - (2.0 / Math.PI) * Math.cos((t * Math.PI) / 37.0)
         + (1.5 / Math.PI) * Math.sin((t * Math.PI) / 53.0);
     } else {
-      warpTime = t - (8 / Math.PI) * Math.cos((t * Math.PI) / 20);
+      // Starfield (warp) and metaball breathe, but gently. warpTime =
+      // t - (A/P_pi) * cos(t*pi/P) has speed 1 + (A/P)*sin(...), so the old
+      // A=8, P=20 swung the rate +/-40% — enough that a tunnel rushing at you
+      // read as stuttering rather than as organic variation. A=3 is +/-15%:
+      // present, but not something you catch yourself watching.
+      warpTime = t - (3.0 / Math.PI) * Math.cos((t * Math.PI) / 20);
     }
     const beatPeriod = 60 / bpm;
     const beatPulse = Math.pow(1 - ((t % beatPeriod) / beatPeriod), 2);
@@ -639,11 +717,15 @@ function Screensaver({onExit, visualizer = 'plasma', pulseEnabled = true}: Scree
   // as before: 26s sine ping-pong along the diagonal (13s each way, in-out).
   const floatStyle = useAnimatedStyle(() => {
     const t = clock.value / 1000;
-    const phase = (1 - Math.cos((2 * Math.PI * t) / 26)) / 2;
+    // Independent, incommensurate axes rather than one shared phase. A single
+    // 26s ping-pong walked the same diagonal line out and back forever; giving
+    // x and y their own non-closing periods makes the text wander the screen.
+    const px = (Math.sin((2 * Math.PI * t) / 23.0) + 1) / 2;
+    const py = (Math.cos((2 * Math.PI * t) / 17.4291) + 1) / 2;
     return {
       transform: [
-        {translateX: 40 + phase * (Math.max(40, width - 580) - 40)},
-        {translateY: 60 + phase * (Math.max(100, height - 180) - 60)},
+        {translateX: 40 + px * (Math.max(40, width - 580) - 40)},
+        {translateY: 60 + py * (Math.max(100, height - 180) - 60)},
       ],
     };
   });

@@ -20,9 +20,13 @@ import {
   getRecentlyAddedAlbums,
   buildRecentQueue,
   buildAlbumQueue,
+  getPlaylists,
+  buildPlaylistQueue,
+  PLAYLIST_MAX,
   artUrl,
   PlexAlbum,
   PlexArtist,
+  PlexPlaylist,
 } from '../api/plex';
 import {usePlayerStore} from '../store/playerStore';
 
@@ -50,10 +54,22 @@ const VISIBLE_ROWS = Math.max(1, Math.floor(LIST_H / ROW_H));
 const RESULT_H = 60;
 const RES_VISIBLE = Math.max(1, Math.floor(LIST_H / RESULT_H));
 
-const TABS = ['albums', 'recent', 'artists', 'search', 'presets', 'inputs'];
+// Playlist rows are the same pitch as artist results so they reuse RES_VISIBLE.
+const PLAYLIST_H = RESULT_H;
+
+const TABS = [
+  'albums',
+  'recent',
+  'playlists',
+  'artists',
+  'search',
+  'presets',
+  'inputs',
+];
 const TAB_LABELS: Record<string, string> = {
   albums: 'Albums',
   recent: 'Recent',
+  playlists: 'Playlists',
   artists: 'Artists',
   search: 'Search',
   presets: 'Presets',
@@ -137,6 +153,10 @@ export default function BrowseScreen({navigation, route}: any) {
   // the album grid below it.
   const [recentZone, setRecentZoneState] = useState<'shuffle' | 'grid'>('grid');
 
+  // Playlists tab state (vertical list of audio playlists).
+  const [playlists, setPlaylists] = useState<PlexPlaylist[]>([]);
+  const [playlistsLoading, setPlaylistsLoading] = useState(true);
+
   // Artist search state
   const [allArtists, setAllArtists] = useState<PlexArtist[]>([]);
   const [artistQuery, setArtistQuery] = useState('');
@@ -177,6 +197,9 @@ export default function BrowseScreen({navigation, route}: any) {
   const albumsRef = useRef<PlexAlbum[]>([]);
   const recentAlbumsRef = useRef<PlexAlbum[]>([]);
   const recentZoneRef = useRef<'shuffle' | 'grid'>('grid');
+  const playlistsRef = useRef<PlexPlaylist[]>([]);
+  const playlistListRef = useRef<FlatList<PlexPlaylist>>(null);
+  const playlistTopRef = useRef(0); // first playlist row scrolled into view
   const presetsRef = useRef<any[]>([]);
   const inputsRef = useRef<any[]>([]);
   const artistViewRef = useRef<'search' | 'albums'>('search');
@@ -206,6 +229,9 @@ export default function BrowseScreen({navigation, route}: any) {
   useEffect(() => {
     recentAlbumsRef.current = recentAlbums;
   }, [recentAlbums]);
+  useEffect(() => {
+    playlistsRef.current = playlists;
+  }, [playlists]);
   useEffect(() => {
     presetsRef.current = presets;
   }, [presets]);
@@ -305,7 +331,23 @@ export default function BrowseScreen({navigation, route}: any) {
     loadData(wiimClient);
     loadAlbums();
     loadRecent();
+    loadPlaylists();
   }, [selectedDevice]);
+
+  // Not cached: playlists are edited outside the app, so reopening Browse
+  // should reflect edits. One small request, unlike the album catalog.
+  const loadPlaylists = async () => {
+    setPlaylistsLoading(true);
+    try {
+      const list = await getPlaylists();
+      setPlaylists(list);
+      playlistsRef.current = list;
+    } catch (e) {
+      // non-fatal; the Playlists tab just shows its empty state
+    } finally {
+      setPlaylistsLoading(false);
+    }
+  };
 
   const loadRecent = async () => {
     setRecentLoading(true);
@@ -358,6 +400,7 @@ export default function BrowseScreen({navigation, route}: any) {
     const t = tabRef.current;
     if (t === 'albums') return albumsRef.current;
     if (t === 'recent') return recentAlbumsRef.current;
+    if (t === 'playlists') return playlistsRef.current;
     if (t === 'presets') return presetsRef.current;
     return inputsRef.current;
   };
@@ -378,6 +421,22 @@ export default function BrowseScreen({navigation, route}: any) {
   const moveTo = (i: number) => {
     setIndex(i);
     idxRef.current = i;
+    // Playlists are a long vertical list (presets/inputs are short enough that
+    // they never scroll), so they need the same keep-focus-visible stepping the
+    // album grid gets — just by single rows instead of grid rows.
+    if (tabRef.current === 'playlists') {
+      let top = playlistTopRef.current;
+      if (i < top) top = i;
+      else if (i > top + RES_VISIBLE - 1) top = i - RES_VISIBLE + 1;
+      if (top !== playlistTopRef.current) {
+        playlistTopRef.current = top;
+        playlistListRef.current?.scrollToOffset({
+          offset: top * PLAYLIST_H,
+          animated: true,
+        });
+      }
+      return;
+    }
     if (!isAlbumGridActive()) return;
     // Scroll only when the focused row leaves the visible window, and only by
     // whole rows — horizontal moves within a row never scroll. This keeps
@@ -438,6 +497,35 @@ export default function BrowseScreen({navigation, route}: any) {
       navigation.navigate('NowPlaying');
     } catch (e: any) {
       setStatusMsg(`Shuffle failed: ${e?.message || 'error'}`);
+    } finally {
+      busyRef.current = false;
+    }
+  };
+
+  // Play a Plex playlist in its stored order. Large smart playlists are capped
+  // at PLAYLIST_MAX tracks (see buildPlaylistQueue) — the status line says so,
+  // otherwise a 30k-track playlist looks like it silently truncated.
+  const handlePlayPlaylist = async (pl: PlexPlaylist) => {
+    const c = clientRef.current;
+    if (!c || busyRef.current) return;
+    if (!pl.count) {
+      setStatusMsg(`"${pl.title}" is empty`);
+      return;
+    }
+    busyRef.current = true;
+    setStatusMsg(`Loading "${pl.title}"…`);
+    try {
+      const queue = await buildPlaylistQueue(pl.ratingKey);
+      if (!queue.length) {
+        setStatusMsg(`No playable tracks in "${pl.title}"`);
+        return;
+      }
+      // A playlist is a finite queue, so it supersedes station auto-refill.
+      usePlayerStore.getState().setPlayerState({stationKind: null});
+      await c.playAlbumQueue(queue, 0);
+      navigation.navigate('NowPlaying');
+    } catch (e: any) {
+      setStatusMsg(`Failed to play "${pl.title}": ${e?.message || 'error'}`);
     } finally {
       busyRef.current = false;
     }
@@ -506,6 +594,8 @@ export default function BrowseScreen({navigation, route}: any) {
     if (!items[i]) return;
     if (t === 'albums' || t === 'recent') {
       handlePlayAlbum(items[i]);
+    } else if (t === 'playlists') {
+      handlePlayPlaylist(items[i]);
     } else if (t === 'presets') {
       clientRef.current?.loadPreset(i).catch(() => {});
     } else {
@@ -695,6 +785,9 @@ export default function BrowseScreen({navigation, route}: any) {
         searchResTopRef.current = 0;
         // Recent tab lands on the album grid (Shuffle is one Up away).
         setRecentZone('grid');
+        // Playlists re-enter at the top of the list.
+        playlistTopRef.current = 0;
+        playlistListRef.current?.scrollToOffset({offset: 0, animated: false});
       };
       if (k === 'left' && ti > 0) {
         switchTab(TABS[ti - 1]);
@@ -820,6 +913,41 @@ export default function BrowseScreen({navigation, route}: any) {
       </View>
     );
   };
+
+  // Playlists: a plain vertical list. Reuses the artist-result row styling so
+  // the two list views look like one thing. Track count doubles as the "is this
+  // the playlist I meant" cue, since several share a title on this server.
+  const renderPlaylistsTab = () => (
+    <FlatList
+      key="playlists-list"
+      ref={playlistListRef}
+      data={playlists}
+      renderItem={({item, index: i}) => {
+        const f = zone === 'content' && index === i;
+        const capped = item.count > PLAYLIST_MAX;
+        return (
+          <View style={[styles.resultItem, f && styles.resultItemFocused]}>
+            <Text style={styles.resultName} numberOfLines={1}>
+              {item.smart ? '⚙ ' : ''}
+              {item.title}
+            </Text>
+            <Text style={styles.resultCount}>
+              {item.count ? `${item.count} tracks` : 'empty'}
+              {capped ? ` · first ${PLAYLIST_MAX}` : ''}
+            </Text>
+          </View>
+        );
+      }}
+      keyExtractor={(item) => item.ratingKey}
+      extraData={index}
+      style={styles.resultsList}
+      getItemLayout={(_d, i) => ({
+        length: PLAYLIST_H,
+        offset: PLAYLIST_H * i,
+        index: i,
+      })}
+    />
+  );
 
   const renderArtistsTab = () => {
     if (artistView === 'albums') {
@@ -1049,6 +1177,19 @@ export default function BrowseScreen({navigation, route}: any) {
         ) : (
           <View style={styles.loadingBox}>
             <Text style={styles.loadingText}>No recently added albums.</Text>
+          </View>
+        )
+      ) : activeTab === 'playlists' ? (
+        playlistsLoading ? (
+          <View style={styles.loadingBox}>
+            <ActivityIndicator size="large" color="#3b9eff" />
+            <Text style={styles.loadingText}>Loading playlists…</Text>
+          </View>
+        ) : playlists.length ? (
+          renderPlaylistsTab()
+        ) : (
+          <View style={styles.loadingBox}>
+            <Text style={styles.loadingText}>No audio playlists on Plex.</Text>
           </View>
         )
       ) : activeTab === 'artists' ? (

@@ -211,8 +211,33 @@ export async function getAlbumTracks(ratingKey: string): Promise<PlexTrack[]> {
   return tracks;
 }
 
+// Map one Plex track object (as returned by any /library or /playlists query)
+// onto a WiiM QueueTrack. Returns null for tracks with no playable part, which
+// callers skip. Every "build a queue from a track list" path shares this so the
+// metadata the WiiM displays is identical no matter where the queue came from.
+function toQueueTrack(t: any): QueueTrack | null {
+  const media = (t.Media && t.Media[0]) || {};
+  const part = (media.Part && media.Part[0]) || {};
+  if (!part.key) return null;
+  const albumRk = str(t.parentRatingKey);
+  const thumb = str(t.parentThumb || t.grandparentThumb || t.thumb);
+  return {
+    url: streamUrl(part.key),
+    trackId: t.ratingKey != null ? `/library/metadata/${t.ratingKey}` : '',
+    albumId: albumRk ? `/library/metadata/${albumRk}/children` : '',
+    title: str(t.title),
+    artist: str(t.grandparentTitle),
+    album: str(t.parentTitle),
+    durationMs: str(t.duration, '0'),
+    bitrate: str(media.bitrate, '320'),
+    artUrl: thumb ? artUrl(thumb, 1000) : '',
+  };
+}
+
 // Build the WiiM native play-queue for an album. Shared by Browse's "play
 // album" and Now Playing's "Feeling lucky?" so the queue is built one way.
+// Note this one does NOT use toQueueTrack: every track gets the ALBUM's art,
+// which is correct here and avoids per-track thumb variation within an album.
 export async function buildAlbumQueue(album: PlexAlbum): Promise<QueueTrack[]> {
   const tracks = await getAlbumTracks(album.ratingKey);
   const art = artUrl(album.thumb, 1000);
@@ -268,25 +293,10 @@ export async function buildStationQueue(
       `?type=10&sort=random${filter}` +
       `&X-Plex-Container-Start=0&X-Plex-Container-Size=${size}`,
   );
-  const items: any[] = mc.Metadata || [];
   const queue: QueueTrack[] = [];
-  for (const t of items) {
-    const media = (t.Media && t.Media[0]) || {};
-    const part = (media.Part && media.Part[0]) || {};
-    if (!part.key) continue;
-    const albumRk = str(t.parentRatingKey);
-    const thumb = str(t.parentThumb || t.grandparentThumb || t.thumb);
-    queue.push({
-      url: streamUrl(part.key),
-      trackId: t.ratingKey != null ? `/library/metadata/${t.ratingKey}` : '',
-      albumId: albumRk ? `/library/metadata/${albumRk}/children` : '',
-      title: str(t.title),
-      artist: str(t.grandparentTitle),
-      album: str(t.parentTitle),
-      durationMs: str(t.duration, '0'),
-      bitrate: str(media.bitrate, '320'),
-      artUrl: thumb ? artUrl(thumb, 1000) : '',
-    });
+  for (const t of mc.Metadata || []) {
+    const qt = toQueueTrack(t);
+    if (qt) queue.push(qt);
   }
   return queue;
 }
@@ -328,25 +338,10 @@ export async function buildRecentQueue(size = 60): Promise<QueueTrack[]> {
       `?type=10&sort=addedAt:desc` +
       `&X-Plex-Container-Start=0&X-Plex-Container-Size=${pool}`,
   );
-  const items: any[] = mc.Metadata || [];
   const queue: QueueTrack[] = [];
-  for (const t of items) {
-    const media = (t.Media && t.Media[0]) || {};
-    const part = (media.Part && media.Part[0]) || {};
-    if (!part.key) continue;
-    const albumRk = str(t.parentRatingKey);
-    const thumb = str(t.parentThumb || t.grandparentThumb || t.thumb);
-    queue.push({
-      url: streamUrl(part.key),
-      trackId: t.ratingKey != null ? `/library/metadata/${t.ratingKey}` : '',
-      albumId: albumRk ? `/library/metadata/${albumRk}/children` : '',
-      title: str(t.title),
-      artist: str(t.grandparentTitle),
-      album: str(t.parentTitle),
-      durationMs: str(t.duration, '0'),
-      bitrate: str(media.bitrate, '320'),
-      artUrl: thumb ? artUrl(thumb, 1000) : '',
-    });
+  for (const t of mc.Metadata || []) {
+    const qt = toQueueTrack(t);
+    if (qt) queue.push(qt);
   }
   for (let i = queue.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
@@ -355,6 +350,59 @@ export async function buildRecentQueue(size = 60): Promise<QueueTrack[]> {
     queue[j] = tmp;
   }
   return queue.slice(0, size);
+}
+
+// --- playlists --------------------------------------------------------------
+
+export interface PlexPlaylist {
+  ratingKey: string;
+  title: string;
+  count: number; // leafCount — number of tracks
+  smart: boolean; // Plex "smart" (rule-based) vs a hand-built playlist
+  thumb: string; // composite mosaic path, may be '' for an empty playlist
+}
+
+// Largest queue we will push to the WiiM for one playlist. Smart playlists can
+// be enormous (tens of thousands of tracks); the WiiM queue is finite and
+// building the QueueContext XML for all of them would be slow and pointless.
+// Playlists are played in their stored order, so this takes the first N.
+export const PLAYLIST_MAX = 200;
+
+// All audio playlists, alphabetical. Empty ones are kept — they show a "0
+// tracks" count rather than silently vanishing, which is less confusing than
+// wondering where a playlist went.
+export async function getPlaylists(): Promise<PlexPlaylist[]> {
+  const mc = await plexGet('/playlists?playlistType=audio');
+  const out: PlexPlaylist[] = [];
+  for (const p of mc.Metadata || []) {
+    if (p.ratingKey == null) continue;
+    out.push({
+      ratingKey: str(p.ratingKey),
+      title: str(p.title),
+      count: Number(p.leafCount) || 0,
+      smart: Boolean(p.smart),
+      thumb: str(p.composite),
+    });
+  }
+  out.sort((a, b) => a.title.localeCompare(b.title));
+  return out;
+}
+
+// Tracks of one playlist as a WiiM queue, in playlist order, capped at `size`.
+export async function buildPlaylistQueue(
+  ratingKey: string,
+  size = PLAYLIST_MAX,
+): Promise<QueueTrack[]> {
+  const mc = await plexGet(
+    `/playlists/${ratingKey}/items` +
+      `?X-Plex-Container-Start=0&X-Plex-Container-Size=${size}`,
+  );
+  const queue: QueueTrack[] = [];
+  for (const t of mc.Metadata || []) {
+    const qt = toQueueTrack(t);
+    if (qt) queue.push(qt);
+  }
+  return queue;
 }
 
 // A single random album. If the full catalog is already cached (Browse was

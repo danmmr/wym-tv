@@ -1,11 +1,20 @@
 package com.wiimtvapp
 
+import android.view.KeyEvent
 import com.facebook.react.ReactActivity
 import com.facebook.react.ReactActivityDelegate
+import com.facebook.react.bridge.ReactContext
 import com.facebook.react.defaults.DefaultNewArchitectureEntryPoint.fabricEnabled
 import com.facebook.react.defaults.DefaultReactActivityDelegate
+import com.facebook.react.modules.core.DeviceEventManagerModule
 
 class MainActivity : ReactActivity() {
+
+  companion object {
+    // When true, the Now Playing screen owns D-pad input (JS renders its own
+    // focus cursor). Toggled from JS via the RemoteControl native module.
+    @Volatile var captureDpad = false
+  }
 
   /**
    * Returns the name of the main component registered from JavaScript. This is used to schedule
@@ -19,4 +28,53 @@ class MainActivity : ReactActivity() {
    */
   override fun createReactActivityDelegate(): ReactActivityDelegate =
       DefaultReactActivityDelegate(this, mainComponentName, fabricEnabled)
+
+  // Forward the Fire TV remote's transport keys to JS so the app can control
+  // playback. Media keys don't conflict with D-pad focus navigation, so we
+  // only intercept those and let everything else behave normally.
+  private fun emitToJs(event: String, value: String) {
+    reactInstanceManager.currentReactContext
+        ?.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
+        ?.emit(event, value)
+  }
+
+  override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
+    // Media keys always forward (don't conflict with focus navigation).
+    val media =
+        when (keyCode) {
+          KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE,
+          KeyEvent.KEYCODE_MEDIA_PLAY,
+          KeyEvent.KEYCODE_MEDIA_PAUSE -> "playPause"
+          KeyEvent.KEYCODE_MEDIA_NEXT,
+          KeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> "next"
+          KeyEvent.KEYCODE_MEDIA_PREVIOUS,
+          KeyEvent.KEYCODE_MEDIA_REWIND -> "prev"
+          else -> null
+        }
+    if (media != null) {
+      emitToJs("WiiMRemoteKey", media)
+      return true
+    }
+
+    // D-pad: only intercept when the Now Playing screen asked to own it.
+    if (captureDpad) {
+      val nav =
+          when (keyCode) {
+            KeyEvent.KEYCODE_DPAD_LEFT -> "left"
+            KeyEvent.KEYCODE_DPAD_RIGHT -> "right"
+            KeyEvent.KEYCODE_DPAD_UP -> "up"
+            KeyEvent.KEYCODE_DPAD_DOWN -> "down"
+            KeyEvent.KEYCODE_DPAD_CENTER,
+            KeyEvent.KEYCODE_ENTER,
+            KeyEvent.KEYCODE_BUTTON_A -> "select"
+            KeyEvent.KEYCODE_MENU -> "menu"
+            else -> null
+          }
+      if (nav != null) {
+        emitToJs("WiiMNavKey", nav)
+        return true
+      }
+    }
+    return super.onKeyDown(keyCode, event)
+  }
 }

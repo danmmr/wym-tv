@@ -58,20 +58,23 @@ const QUEUE_NAME = 'WiiMTV';
 // argument. xText handles XML text/attribute content; htmlEsc additionally
 // escapes apostrophes and is used for the two wrapping layers. This mirrors the
 // exact format the WiiM Home app produces (reverse-engineered via BrowseQueue).
-function xText(s: string): string {
+// Exported for unit tests — this escaping is the single most breakage-prone
+// thing in the app (a missed level silently yields a queue the WiiM rejects or
+// plays with mangled metadata), and it is otherwise only observable on device.
+export function xText(s: string): string {
   return s
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
 }
-function htmlEsc(s: string): string {
+export function htmlEsc(s: string): string {
   return xText(s).replace(/'/g, '&#x27;');
 }
 
 // Reverse of the escaping above, for parsing BrowseQueue responses (which are
 // entity-encoded, and contain a second entity-encoded DIDL inside <Metadata>).
-function decodeEntities(s: string): string {
+export function decodeEntities(s: string): string {
   return s
     .replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>')
@@ -83,7 +86,7 @@ function decodeEntities(s: string): string {
     .replace(/&amp;/g, '&'); // ampersand last so it doesn't double-decode
 }
 
-function buildDidl(t: QueueTrack): string {
+export function buildDidl(t: QueueTrack): string {
   return (
     '<?xml version="1.0"?>' +
     '<DIDL-Lite xmlns:dc="http://purl.org/dc/elements/1.1/" ' +
@@ -106,7 +109,7 @@ function buildDidl(t: QueueTrack): string {
   );
 }
 
-function buildQueueContext(name: string, tracks: QueueTrack[]): string {
+export function buildQueueContext(name: string, tracks: QueueTrack[]): string {
   let trackXml = '';
   tracks.forEach((t, i) => {
     const idx = i + 1;

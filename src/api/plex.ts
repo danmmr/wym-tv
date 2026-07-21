@@ -405,6 +405,41 @@ export async function buildPlaylistQueue(
   return queue;
 }
 
+// A batch of random albums, for the art-frame slideshow. Prefers the cached
+// catalog (Browse already loaded it) and otherwise asks Plex for one random
+// page — one request per batch rather than one per slide.
+export async function getRandomAlbums(count = 30): Promise<PlexAlbum[]> {
+  const pick = (pool: PlexAlbum[]) => {
+    const out = pool.slice();
+    for (let i = out.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      const tmp = out[i];
+      out[i] = out[j];
+      out[j] = tmp;
+    }
+    return out.slice(0, count);
+  };
+  if (albumCache && albumCache.length) return pick(albumCache);
+  const mc = await plexGet(
+    `/library/sections/${PLEX.musicSection}/all` +
+      `?type=9&excludeFields=summary&sort=random` +
+      `&X-Plex-Container-Start=0&X-Plex-Container-Size=${count}`,
+  );
+  const out: PlexAlbum[] = [];
+  for (const d of mc.Metadata || []) {
+    if (d.ratingKey == null || !d.thumb) continue;
+    out.push({
+      ratingKey: str(d.ratingKey),
+      title: str(d.title),
+      artist: str(d.parentTitle),
+      artistKey: str(d.parentRatingKey),
+      thumb: str(d.thumb),
+      year: str(d.year),
+    });
+  }
+  return out;
+}
+
 // A single random album. If the full catalog is already cached (Browse was
 // opened) we pick from it instantly; otherwise ask Plex for one random album
 // (sort=random, size=1) — fast, no need to load all ~3800 first.

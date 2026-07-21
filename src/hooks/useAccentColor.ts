@@ -110,6 +110,31 @@ function normalizeAccent(hex: string): string {
   return hslToHex(h, clamp(s, 0.55, 0.95), clamp(l, 0.55, 0.66));
 }
 
+// Accent for one image URL, or undefined if it can't be derived. Exported so
+// callers that theme off something OTHER than the currently playing track (the
+// art-frame slideshow) can reuse the same picking and normalization without
+// writing to the player store.
+export async function accentFor(url: string): Promise<string | undefined> {
+  if (!url) return undefined;
+  try {
+    const res = await ImageColors.getColors(toFetchableUrl(url), {
+      cache: true,
+      key: url,
+      quality: 'low',
+    });
+    // Android returns vibrant/dominant/average/muted/etc. Prefer a vibrant
+    // pick, then dominant, then average, so we always land on something.
+    const pick =
+      (res.platform === 'android' &&
+        (res.vibrant || res.dominant || res.average)) ||
+      (res.platform === 'ios' && (res.primary || res.secondary)) ||
+      undefined;
+    return pick ? normalizeAccent(pick) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export function useAccentColor() {
   const albumArt = usePlayerStore(s => s.albumArt);
 
@@ -119,29 +144,11 @@ export function useAccentColor() {
       usePlayerStore.getState().setPlayerState({accent: undefined});
       return;
     }
-    ImageColors.getColors(toFetchableUrl(albumArt), {
-      cache: true,
-      key: albumArt,
-      quality: 'low',
-    })
-      .then(res => {
-        if (cancelled) return;
-        // Android returns vibrant/dominant/average/muted/etc. Prefer a vibrant
-        // pick, then dominant, then average, so we always land on something.
-        const pick =
-          (res.platform === 'android' &&
-            (res.vibrant || res.dominant || res.average)) ||
-          (res.platform === 'ios' && (res.primary || res.secondary)) ||
-          undefined;
-        usePlayerStore
-          .getState()
-          .setPlayerState({accent: pick ? normalizeAccent(pick) : undefined});
-      })
-      .catch(() => {
-        if (!cancelled) {
-          usePlayerStore.getState().setPlayerState({accent: undefined});
-        }
-      });
+    accentFor(albumArt).then(accent => {
+      if (!cancelled) {
+        usePlayerStore.getState().setPlayerState({accent});
+      }
+    });
     return () => {
       cancelled = true;
     };

@@ -41,13 +41,99 @@ const DOWNSCALE = 1.5; // 1920x1080 -> 1280x720 backing
 const LOW_W = Math.round(width / DOWNSCALE);
 const LOW_H = Math.round(height / DOWNSCALE);
 
+// All four visualizers share one palette: a ramp between two endpoint colours,
+// swept by whatever scalar field that visualizer computes. The endpoints arrive
+// as uniforms so the ramp can follow the album art (see paletteFor).
+const PALETTE_UNIFORMS = `
+uniform float3 palLo;
+uniform float3 palHi;
+`;
+const PALETTE_FN = `
+float3 palette(float hue) {
+  float t = 0.5 + 0.5 * cos(6.2832 * hue);
+  return mix(palLo, palHi, t);
+}
+`;
+
+// The screensaver palette is a ramp between two endpoints, swept by the field
+// value. Both endpoints are built around the album accent's hue, so the field
+// stays inside that album's colour family.
+//
+// Anchored on the ORIGINAL tuned look: hue ~273 (deep blue/purple) ramping to a
+// brighter magenta. An earlier attempt rotated the old cosine palette in RGB,
+// which held "one channel stays low" but not WHICH channel — a blue accent
+// suppressed red and let green rise, so the field went blue/green. Building the
+// endpoints in HSV keeps the ramp inside a narrow hue window instead.
+const PAL_DEFAULT_HUE = 273;
+const PAL_DEFAULT_SAT = 0.75;
+const PAL_LO_HUE_OFFSET = -12; // deep end, slightly cooler than the accent
+const PAL_HI_HUE_OFFSET = 20; // bright end, slightly warmer
+const PAL_LO_VALUE = 0.14;
+const PAL_HI_VALUE = 0.62;
+
+function hsvToRgb(h: number, s: number, v: number): [number, number, number] {
+  const hh = (((h % 360) + 360) % 360) / 60;
+  const c = v * s;
+  const x = c * (1 - Math.abs((hh % 2) - 1));
+  const m = v - c;
+  let r = 0;
+  let g = 0;
+  let b = 0;
+  if (hh < 1) { r = c; g = x; }
+  else if (hh < 2) { r = x; g = c; }
+  else if (hh < 3) { g = c; b = x; }
+  else if (hh < 4) { g = x; b = c; }
+  else if (hh < 5) { r = x; b = c; }
+  else { r = c; b = x; }
+  return [r + m, g + m, b + m];
+}
+
+// Hue and saturation of a #rrggbb string, or null if unparseable / grey.
+function hsOf(hex: string): {h: number; s: number} | null {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex || '');
+  if (!m) return null;
+  const n = parseInt(m[1], 16);
+  const r = ((n >> 16) & 255) / 255;
+  const g = ((n >> 8) & 255) / 255;
+  const b = (n & 255) / 255;
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const d = max - min;
+  if (d < 0.02) return null; // grey - no meaningful hue
+  let h: number;
+  if (max === r) h = ((g - b) / d) % 6;
+  else if (max === g) h = (b - r) / d + 2;
+  else h = (r - g) / d + 4;
+  h *= 60;
+  if (h < 0) h += 360;
+  return {h, s: max > 0 ? d / max : 0};
+}
+
+// Palette endpoints for an accent colour. Falls back to the tuned original when
+// there is no accent (nothing playing, or art that yielded no vibrant swatch).
+function paletteFor(accent: string): {
+  palLo: [number, number, number];
+  palHi: [number, number, number];
+} {
+  const hs = hsOf(accent);
+  const h = hs ? hs.h : PAL_DEFAULT_HUE;
+  // Clamp saturation: a washed-out accent would give a grey field, a fully
+  // saturated one would band on the TV's gradient handling.
+  const s = hs ? Math.min(0.95, Math.max(0.55, hs.s)) : PAL_DEFAULT_SAT;
+  return {
+    palLo: hsvToRgb(h + PAL_LO_HUE_OFFSET, Math.min(1, s * 1.05), PAL_LO_VALUE),
+    palHi: hsvToRgb(h + PAL_HI_HUE_OFFSET, s * 0.85, PAL_HI_VALUE),
+  };
+}
+
 const PLASMA_SRC = `
 uniform float2 resolution;
 uniform float  time;
 uniform float  colorShift;
 uniform float  density;
 uniform float  pulse;
-
+${PALETTE_UNIFORMS}
+${PALETTE_FN}
 half4 main(float2 fragCoord) {
   float aspect = resolution.x / resolution.y;
   float x = (fragCoord.x / resolution.x - 0.5) * aspect * 8.0;
@@ -62,13 +148,10 @@ half4 main(float2 fragCoord) {
   float n  = v * 0.25 + 0.5;
 
   float hue = fract(n * 1.5 + colorShift);
-  // Blue/purple/magenta palette - green channel capped low so no yellow or green appear
-  float r = 0.20 + 0.22 * cos(6.2832 * (hue + 0.00));
-  float g = 0.08 + 0.08 * cos(6.2832 * (hue + 0.30));
-  float b = 0.30 + 0.28 * cos(6.2832 * (hue + 0.60));
+  float3 col = palette(hue);
 
   float bright = 0.85 + pulse * 0.15;
-  return half4(r * bright, g * bright, b * bright, 1.0);
+  return half4(half3(col * bright), 1.0);
 }
 `;
 
@@ -82,7 +165,8 @@ uniform float  time;
 uniform float  colorShift;
 uniform float  density;
 uniform float  pulse;
-
+${PALETTE_UNIFORMS}
+${PALETTE_FN}
 half4 main(float2 fragCoord) {
   float2 uv = fragCoord / resolution;
   float aspect = resolution.x / resolution.y;
@@ -103,13 +187,10 @@ half4 main(float2 fragCoord) {
   field = mix(field, 0.5 + 0.5 * sin(length(r) * 1.1 + t), 0.35);
 
   float hue = fract(field * 0.6 + colorShift);
-  // Same blue/purple/magenta palette as plasma - green capped low
-  float cr = 0.20 + 0.22 * cos(6.2832 * (hue + 0.00));
-  float cg = 0.08 + 0.08 * cos(6.2832 * (hue + 0.30));
-  float cb = 0.30 + 0.28 * cos(6.2832 * (hue + 0.60));
+  float3 col = palette(hue);
 
   float bright = 0.85 + pulse * 0.15;
-  return half4(cr * bright, cg * bright, cb * bright, 1.0);
+  return half4(half3(col * bright), 1.0);
 }
 `;
 
@@ -129,7 +210,8 @@ uniform float  time;
 uniform float  colorShift;
 uniform float  density;
 uniform float  pulse;
-
+${PALETTE_UNIFORMS}
+${PALETTE_FN}
 half4 main(float2 fragCoord) {
   float2 uv = (fragCoord - 0.5 * resolution) / resolution.y;
   float pr = max(length(uv), 0.0001);
@@ -152,10 +234,7 @@ half4 main(float2 fragCoord) {
 
   float fade = smoothstep(0.04, 0.45, pr);                  // dark center, lit rim
   float hue  = fract(colorShift + depth * 0.04);
-  float3 wall = float3(
-    0.20 + 0.24 * cos(6.2832 * (hue + 0.00)),
-    0.08 + 0.09 * cos(6.2832 * (hue + 0.30)),
-    0.32 + 0.30 * cos(6.2832 * (hue + 0.60)));
+  float3 wall = palette(hue);
 
   float3 col = float3(0.02, 0.01, 0.05);
   col += wall * (0.25 + 0.5 * arms * detail + 0.3 * arms * rings) * fade;
@@ -175,7 +254,8 @@ uniform float  time;
 uniform float  colorShift;
 uniform float  density;
 uniform float  pulse;
-
+${PALETTE_UNIFORMS}
+${PALETTE_FN}
 half4 main(float2 fragCoord) {
   float2 uv = fragCoord / resolution;
   float aspect = resolution.x / resolution.y;
@@ -198,10 +278,7 @@ half4 main(float2 fragCoord) {
   float m = smoothstep(thr - 0.4, thr + 0.6, field);
 
   float hue = fract(field * 0.15 + colorShift);
-  float cr = 0.20 + 0.22 * cos(6.2832 * (hue + 0.00));
-  float cg = 0.08 + 0.08 * cos(6.2832 * (hue + 0.30));
-  float cb = 0.30 + 0.28 * cos(6.2832 * (hue + 0.60));
-  float3 lava = float3(cr, cg, cb) * (0.9 + pulse * 0.2);
+  float3 lava = palette(hue) * (0.9 + pulse * 0.2);
   float3 bg = float3(0.04, 0.02, 0.08);
   return half4(mix(bg, lava, m), 1.0);
 }
@@ -397,10 +474,21 @@ interface VisualProps {
   trackProgress: number;
   bpm: number;
   visualizer: Visualizer;
+  accent: string;
 }
 
-function VisualizerCanvas({volume, trackProgress, bpm, visualizer}: VisualProps) {
+function VisualizerCanvas({
+  volume,
+  trackProgress,
+  bpm,
+  visualizer,
+  accent,
+}: VisualProps) {
   const clock = useCappedClock(SAVER_FPS);
+
+  // Derived once per accent change, NOT per frame — this is plain JS trig and
+  // the uniforms worklet runs 30x a second.
+  const {palLo, palHi} = useMemo(() => paletteFor(accent), [accent]);
 
   // Uniforms recompute on the UI thread each gated tick so the field keeps moving.
   const uniforms = useDerivedValue(() => {
@@ -430,8 +518,10 @@ function VisualizerCanvas({volume, trackProgress, bpm, visualizer}: VisualProps)
       colorShift,
       density,
       pulse: beatPulse,
+      palLo,
+      palHi,
     };
-  }, [bpm, volume, trackProgress, visualizer]);
+  }, [bpm, volume, trackProgress, visualizer, palLo, palHi]);
 
   const effect = EFFECT_BY_VISUALIZER[visualizer] ?? PLASMA_EFFECT;
   if (!effect) {
@@ -544,6 +634,7 @@ function Screensaver({onExit, visualizer = 'plasma', pulseEnabled = true}: Scree
         trackProgress={trackProgress}
         bpm={bpm}
         visualizer={visualizer}
+        accent={ringColor}
       />
 
       {!!albumArt && <AlbumArt uri={albumArt} bpm={bpm} pulseEnabled={pulseEnabled} trackProgress={trackProgress} accent={ringColor} />}

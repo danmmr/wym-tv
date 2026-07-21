@@ -12,8 +12,10 @@ import {useFocusEffect} from '@react-navigation/native';
 import {useDeviceStore} from '../store/deviceStore';
 import {WiiMClient, QueueItem} from '../api/wiim';
 
-const ROW_H = 60;
-const VISIBLE = 8; // rows that fit in the list viewport
+// The Fire Stick window is 960x540 dp (1080p panel at density 320), so the
+// vertical budget here is small — see the note on paddingBottom below.
+const ROW_H = 48;
+const VISIBLE = 6; // seed only; the real count is measured onLayout
 
 // Focus model: 0 = the shuffle button, 1..N = the track at that 1-based index.
 export default function QueueScreen({navigation}: any) {
@@ -216,29 +218,31 @@ const styles = StyleSheet.create({
     backgroundColor: '#0a0a0a',
     paddingHorizontal: 48,
     paddingTop: 12,
-    // Fire TV overscan-safe bottom inset so the list and hint clear the crop.
-    paddingBottom: 140,
+    // Overscan-safe bottom inset. 140 (what Now Playing uses) is 26% of a
+    // 540dp-tall window and left this list showing only 3-4 tracks. 96dp is
+    // ~18%, still well clear of the ~10% the TV crops.
+    paddingBottom: 96,
   },
-  header: {marginBottom: 12},
-  heading: {fontSize: 24, fontWeight: 'bold', color: '#fff'},
-  sub: {fontSize: 15, color: '#8b95a7', marginTop: 2},
+  header: {marginBottom: 8},
+  heading: {fontSize: 20, fontWeight: 'bold', color: '#fff'},
+  sub: {fontSize: 14, color: '#8b95a7', marginTop: 2},
   shuffle: {
     alignSelf: 'flex-start',
-    paddingHorizontal: 18,
-    paddingVertical: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 6,
     borderRadius: 8,
     borderWidth: 3,
     borderColor: 'transparent',
     backgroundColor: '#16315a',
-    marginBottom: 10,
+    marginBottom: 8,
   },
   shuffleFocused: {borderColor: '#ffffff', backgroundColor: '#1f4480'},
   shuffleText: {color: '#cfe0ff', fontWeight: 'bold', fontSize: 15},
   status: {color: '#3b9eff', fontSize: 13, marginBottom: 6},
   list: {flex: 1},
   row: {
-    height: ROW_H - 8,
-    marginBottom: 8,
+    height: ROW_H - 6,
+    marginBottom: 6,
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#161a22',

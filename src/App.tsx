@@ -6,6 +6,7 @@ import DiscoveryScreen from './screens/DiscoveryScreen';
 import NowPlayingScreen from './screens/NowPlayingScreen';
 import BrowseScreen from './screens/BrowseScreen';
 import QueueScreen from './screens/QueueScreen';
+import AlbumScreen from './screens/AlbumScreen';
 import SettingsScreen from './screens/SettingsScreen';
 import { loadPersistedDevice } from './store/deviceStore';
 import { loadPersistedStation } from './store/playerStore';
@@ -66,6 +67,11 @@ export default function App() {
           name="Browse"
           component={BrowseScreen}
           options={{ title: 'Browse' }}
+        />
+        <Stack.Screen
+          name="Album"
+          component={AlbumScreen}
+          options={{ title: 'Album' }}
         />
         <Stack.Screen
           name="Queue"

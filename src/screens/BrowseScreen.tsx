@@ -763,8 +763,43 @@ export default function BrowseScreen({navigation, route}: any) {
     }
   };
 
+  // The album under the cursor, for whichever view is showing one. Returns null
+  // on the tabs/back zones and on the non-album tabs, so MENU does nothing
+  // there rather than opening a detail view for something that isn't an album.
+  const focusedAlbum = (): PlexAlbum | null => {
+    if (zoneRef.current !== 'content') return null;
+    const t = tabRef.current;
+    const i = idxRef.current;
+    if (t === 'albums') return albumsRef.current[i] || null;
+    if (t === 'recent') {
+      return recentZoneRef.current === 'grid'
+        ? recentAlbumsRef.current[i] || null
+        : null;
+    }
+    if (t === 'artists') {
+      return artistViewRef.current === 'albums' &&
+        artistZoneRef.current === 'albumgrid'
+        ? artistAlbumsRef.current[i] || null
+        : null;
+    }
+    if (t === 'search') {
+      return searchZoneRef.current === 'results'
+        ? filteredSearchRef.current[searchResIdxRef.current] || null
+        : null;
+    }
+    return null;
+  };
+
   const onNav = (k: string) => {
     const z = zoneRef.current;
+
+    // MENU (☰) opens the album track listing. Deliberately not OK — playing an
+    // album outright is the common case and stays one keypress.
+    if (k === 'menu') {
+      const a = focusedAlbum();
+      if (a) navigation.navigate('Album', {album: a});
+      return;
+    }
 
     if (z === 'tabs') {
       const ti = TABS.indexOf(tabRef.current);
@@ -1236,6 +1271,17 @@ export default function BrowseScreen({navigation, route}: any) {
         />
       )}
 
+      {/* MENU is invisible without a prompt, so say so on the tabs that
+          actually show albums. */}
+      {activeTab === 'albums' ||
+      activeTab === 'recent' ||
+      activeTab === 'artists' ||
+      activeTab === 'search' ? (
+        <Text style={styles.menuHint}>
+          OK: play album · ☰ Menu: track listing
+        </Text>
+      ) : null}
+
       <View style={[styles.backButton, zone === 'back' && styles.backFocused]}>
         <Text style={styles.backButtonText}>← Back</Text>
       </View>
@@ -1276,6 +1322,12 @@ const styles = StyleSheet.create({
   },
   activeTabText: {
     color: '#1a1a1a',
+  },
+  menuHint: {
+    color: '#5b6472',
+    fontSize: 12,
+    textAlign: 'center',
+    marginBottom: 6,
   },
   statusMsg: {
     color: '#3b9eff',

@@ -53,6 +53,27 @@ float3 palette(float hue) {
   float t = 0.5 + 0.5 * cos(6.2832 * hue);
   return mix(palLo, palHi, t);
 }
+
+// Interleaved gradient noise — a hash with no sin/cos, so it costs almost
+// nothing per pixel. Returns 0..1.
+float ign(float2 p) {
+  return fract(52.9829189 * fract(dot(p, float2(0.06711056, 0.00583715))));
+}
+
+// Per-pixel dither, added to the final colour. Two artefacts need breaking up,
+// and both only became visible once the palette started following the album art
+// (a single-hue ramp has far smoother gradients than the old multi-hue sweep,
+// and smooth gradients are exactly where these show):
+//   1. 8-bit quantisation banding across a slow gradient.
+//   2. The DOWNSCALE=1.5 upscale lattice. 2 source pixels map to 3 screen
+//      pixels, so the resample beats at a 3px period and reads as a regular
+//      diagonal cross-hatch. Noise breaks the regularity, which is what makes
+//      it read as texture instead of a grid.
+// Static (no time term) on purpose: a temporally varying dither shimmers, and
+// the canvas is frame-capped, which would make the shimmer strobe.
+float3 dither(float2 fragCoord) {
+  return float3((ign(fragCoord) - 0.5) * ${(3.0 / 255).toFixed(6)});
+}
 `;
 
 // The screensaver palette is a ramp between two endpoints, swept by the field
@@ -151,7 +172,7 @@ half4 main(float2 fragCoord) {
   float3 col = palette(hue);
 
   float bright = 0.85 + pulse * 0.15;
-  return half4(half3(col * bright), 1.0);
+  return half4(half3(col * bright + dither(fragCoord)), 1.0);
 }
 `;
 
@@ -190,7 +211,7 @@ half4 main(float2 fragCoord) {
   float3 col = palette(hue);
 
   float bright = 0.85 + pulse * 0.15;
-  return half4(half3(col * bright), 1.0);
+  return half4(half3(col * bright + dither(fragCoord)), 1.0);
 }
 `;
 
@@ -240,7 +261,7 @@ half4 main(float2 fragCoord) {
   col += wall * (0.25 + 0.5 * arms * detail + 0.3 * arms * rings) * fade;
   col += float3(0.80, 0.90, 1.0) * glint * fade;            // sparkles
   col += wall * 0.35 * smoothstep(0.5, 0.9, pr);            // rim brightening
-  return half4(min(col, float3(1.0)), 1.0);
+  return half4(min(col + dither(fragCoord), float3(1.0)), 1.0);
 }
 `;
 
@@ -280,7 +301,7 @@ half4 main(float2 fragCoord) {
   float hue = fract(field * 0.15 + colorShift);
   float3 lava = palette(hue) * (0.9 + pulse * 0.2);
   float3 bg = float3(0.04, 0.02, 0.08);
-  return half4(mix(bg, lava, m), 1.0);
+  return half4(mix(bg, lava, m) + dither(fragCoord), 1.0);
 }
 `;
 

@@ -40,7 +40,10 @@ export default function NowPlayingScreen({ navigation }: any) {
   const [showArtFrame, setShowArtFrame] = useState(false);
   const showArtFrameRef = useRef(false);
   const [vizIndex, setVizIndex] = useState(0);
-  const [pulseEnabled, setPulseEnabled] = useState(true);
+  // The screensaver's album art shows a song-progress ring only when asked for
+  // — OFF by default, toggled with the menu/options button while the saver is
+  // up. It replaces the old always-on beat ring.
+  const [showProgressRing, setShowProgressRing] = useState(false);
   const [lastAction, setLastAction] = useState('');
   const [connection, setConnection] = useState<'ok' | 'reconnecting'>('ok');
   const [focusRow, setFocusRow] = useState(0);
@@ -468,7 +471,7 @@ export default function NowPlayingScreen({ navigation }: any) {
         } else if (k === 'select') {
           handleScreensaverExit(); // OK / center returns to Now Playing
         } else if (k === 'menu') {
-          setPulseEnabled(p => !p); // options/menu button toggles album-art pulse
+          setShowProgressRing(p => !p); // menu button toggles the time-left ring
         } else {
           handleScreensaverExit();
         }
@@ -547,7 +550,7 @@ export default function NowPlayingScreen({ navigation }: any) {
       <Screensaver
         onExit={handleScreensaverExit}
         visualizer={VISUALIZERS[vizIndex]}
-        pulseEnabled={pulseEnabled}
+        showProgressRing={showProgressRing}
       />
     );
   }

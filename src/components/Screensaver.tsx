@@ -7,13 +7,10 @@ import {
   NativeModules,
 } from 'react-native';
 import {
-  BlurMask,
   Canvas,
-  Circle,
   Fill,
   Group,
   Image as SkiaImage,
-  Paint,
   Path,
   Shader,
   Skia,
@@ -414,7 +411,7 @@ function useCappedClock(fps: number) {
   return t;
 }
 
-function AlbumArt({uri, bpm, pulseEnabled, trackProgress, accent}: {uri: string; bpm: number; pulseEnabled: boolean; trackProgress: number; accent: string}) {
+function AlbumArt({uri, showProgressRing, trackProgress, accent}: {uri: string; showProgressRing: boolean; trackProgress: number; accent: string}) {
   const [img, setImg] = useState<SkImage | null>(null);
   const clock = useCappedClock(SAVER_FPS);
   const clipPath = useMemo(makeCirclePath, []);
@@ -472,22 +469,12 @@ function AlbumArt({uri, bpm, pulseEnabled, trackProgress, accent}: {uri: string;
       1.22;
     return ((u + 1) / 2) * (height - ART_SIZE - 120) + 60;
   }, [clock]);
-  const beat = useDerivedValue(() => {
-    const t = clock.value / 1000;
-    const beatPeriod = 60 / bpm;
-    return Math.pow(1 - ((t % beatPeriod) / beatPeriod), 2);
-  }, [clock, bpm]);
-
   const artTransform = useDerivedValue(() => [
     {translateX: orbitX.value},
     {translateY: orbitY.value},
   ]);
   const ringCx = useDerivedValue(() => orbitX.value + ART_RADIUS);
   const ringCy = useDerivedValue(() => orbitY.value + ART_RADIUS);
-  const pm = pulseEnabled ? 1 : 0;
-  const ringR = useDerivedValue(() => ART_RADIUS + 6 + beat.value * 10 * pm, [clock, bpm, pm]);
-  const ringBlur = useDerivedValue(() => 18 + beat.value * 14 * pm, [clock, bpm, pm]);
-  const ringOpacity = useDerivedValue(() => 0.25 + beat.value * 0.5 * pm, [clock, bpm, pm]);
 
   // Progress arc as an SVG path string — guarantees a bare arc with no
   // connecting lines to the center (addArc draws a pie sector on this Skia build).
@@ -516,19 +503,12 @@ function AlbumArt({uri, bpm, pulseEnabled, trackProgress, accent}: {uri: string;
   return (
     <Canvas style={styles.canvas}>
       <Group>
-        {pulseEnabled ? (
-          /* Mode 1: beat-synced glow ring */
-          <Circle cx={ringCx} cy={ringCy} r={ringR}>
-            <Paint
-              color={accent}
-              style={(Skia as any).PaintStyle?.Stroke ?? 1}
-              strokeWidth={22}
-              opacity={ringOpacity}>
-              <BlurMask style="normal" blur={ringBlur} respectCTM={true} />
-            </Paint>
-          </Circle>
-        ) : (
-          /* Mode 2: song-progress ring — fills clockwise, completes when song ends */
+        {/* The art carries NO ring by default. There used to be a beat-synced
+            glow here, but a ring throbbing to a BPM guessed from the track
+            title is noise, not information. The progress ring below is the only
+            ring, and it is opt-in — see showProgressRing. */}
+        {showProgressRing && (
+          /* Song-progress ring — fills clockwise, completes when the song ends */
           <Group transform={artTransform}>
             {trackProgress > 0 && (
               <Path
@@ -647,7 +627,7 @@ function clockNow(): string {
 export interface ScreensaverProps {
   onExit: () => void;
   visualizer?: Visualizer;
-  pulseEnabled?: boolean;
+  showProgressRing?: boolean;
 }
 
 class ScreensaverErrorBoundary extends React.Component<
@@ -689,7 +669,7 @@ export default function ScreensaverWrapped(props: ScreensaverProps) {
   );
 }
 
-function Screensaver({onExit, visualizer = 'plasma', pulseEnabled = true}: ScreensaverProps) {
+function Screensaver({onExit, visualizer = 'plasma', showProgressRing = false}: ScreensaverProps) {
   const {title, artist, albumArt, volume, currentPos, duration, accent} = usePlayerStore();
   const ringColor = accent || '#78a0ff';
 
@@ -740,7 +720,7 @@ function Screensaver({onExit, visualizer = 'plasma', pulseEnabled = true}: Scree
         accent={ringColor}
       />
 
-      {!!albumArt && <AlbumArt uri={albumArt} bpm={bpm} pulseEnabled={pulseEnabled} trackProgress={trackProgress} accent={ringColor} />}
+      {!!albumArt && <AlbumArt uri={albumArt} showProgressRing={showProgressRing} trackProgress={trackProgress} accent={ringColor} />}
 
       {title ? (
         <ReAnimated.View style={[styles.floatBlock, floatStyle]}>

@@ -15,7 +15,7 @@ import {useDeviceStore} from '../store/deviceStore';
 import {WiiMClient} from '../api/wiim';
 import {
   getShuffledAlbums,
-  getArtists,
+  getShuffledArtists,
   getAlbumsByArtist,
   getRecentlyAddedAlbums,
   buildRecentQueue,
@@ -59,10 +59,10 @@ const RES_VISIBLE = Math.max(1, Math.floor(LIST_H / RESULT_H));
 const PLAYLIST_H = RESULT_H;
 
 const TABS = [
+  'artists',
   'albums',
   'recent',
   'playlists',
-  'artists',
   'search',
   'presets',
   'inputs',
@@ -95,10 +95,9 @@ const KEY_ROWS: Key[][] = [
 ];
 
 // Focus zones for the JS-managed D-pad cursor (this app captures the D-pad and
-// drives focus in JS rather than relying on native TV focus). 'content' is
-// further split for the Artists tab via artistZone (keyboard/results/albumgrid).
+// drives focus in JS rather than relying on native TV focus). The Artists tab
+// swaps its content between a shuffled artist grid and one artist's releases.
 type Zone = 'tabs' | 'content' | 'back';
-type ArtistZone = 'keyboard' | 'results' | 'albumgrid';
 
 // Memoised album cell: with extraData on the FlatList only the two cards whose
 // `focused` flips actually re-render on each cursor move, instead of repainting
@@ -134,6 +133,39 @@ const AlbumCard = React.memo(function AlbumCard({
   );
 });
 
+// Memoised artist cell — same geometry as AlbumCard so the Artists tab reads as
+// a grid of artists (thumbnail + name + album count) rather than a search box.
+const ArtistCard = React.memo(function ArtistCard({
+  artist,
+  focused,
+}: {
+  artist: PlexArtist;
+  focused: boolean;
+}) {
+  return (
+    <View style={[styles.card, focused && styles.cardFocused]}>
+      {artist.thumb ? (
+        <Image
+          source={{uri: artUrl(artist.thumb, 320)}}
+          style={styles.cardArt}
+        />
+      ) : (
+        <View style={[styles.cardArt, styles.cardArtPlaceholder]}>
+          <Text style={styles.cardArtPlaceholderText}>
+            {(artist.name || '?').charAt(0).toUpperCase()}
+          </Text>
+        </View>
+      )}
+      <Text style={styles.cardTitle} numberOfLines={1}>
+        {artist.name}
+      </Text>
+      <Text style={styles.cardArtist} numberOfLines={1}>
+        {artist.count} {artist.count === 1 ? 'album' : 'albums'}
+      </Text>
+    </View>
+  );
+});
+
 export default function BrowseScreen({navigation, route}: any) {
   const selectedDevice = useDeviceStore(s => s.selectedDevice);
   // Optionally deep-linked to a specific tab (e.g. the Now Playing "Recently
@@ -161,15 +193,13 @@ export default function BrowseScreen({navigation, route}: any) {
   const [playlists, setPlaylists] = useState<PlexPlaylist[]>([]);
   const [playlistsLoading, setPlaylistsLoading] = useState(true);
 
-  // Artist search state
+  // Artists tab state: a shuffled grid of all artists (allArtists) that drills
+  // into one artist's releases (artistAlbums) on select.
   const [allArtists, setAllArtists] = useState<PlexArtist[]>([]);
-  const [artistQuery, setArtistQuery] = useState('');
-  const [artistView, setArtistView] = useState<'search' | 'albums'>('search');
+  const [artistView, setArtistView] = useState<'grid' | 'albums'>('grid');
   const [artistAlbums, setArtistAlbums] = useState<PlexAlbum[]>([]);
   const [selectedArtist, setSelectedArtist] = useState<PlexArtist | null>(null);
-  const [artistZone, setArtistZoneState] = useState<ArtistZone>('keyboard');
   const [kbPos, setKbPos] = useState({row: 0, col: 0});
-  const [resIdx, setResIdxState] = useState(0);
 
   // Album search state (the Search tab — title/artist substring over the cached
   // catalog). Mirrors the artist-search keyboard+results machinery; reuses the
@@ -186,9 +216,8 @@ export default function BrowseScreen({navigation, route}: any) {
   const listRef = useRef<FlatList<PlexAlbum>>(null);
   const recentListRef = useRef<FlatList<PlexAlbum>>(null);
   const artistListRef = useRef<FlatList<PlexAlbum>>(null);
-  const resultsListRef = useRef<FlatList<PlexArtist>>(null);
-  const topRowRef = useRef(0); // first album row currently scrolled into view
-  const resTopRef = useRef(0); // first result row currently scrolled into view
+  const rosterListRef = useRef<FlatList<PlexArtist>>(null);
+  const topRowRef = useRef(0); // first grid row currently scrolled into view
   const busyRef = useRef(false);
   // The D-pad listener is registered once and captures first-render closures,
   // where `client` is still null. Read the live client through a ref instead.
@@ -206,11 +235,10 @@ export default function BrowseScreen({navigation, route}: any) {
   const playlistTopRef = useRef(0); // first playlist row scrolled into view
   const presetsRef = useRef<any[]>([]);
   const inputsRef = useRef<any[]>([]);
-  const artistViewRef = useRef<'search' | 'albums'>('search');
-  const artistZoneRef = useRef<ArtistZone>('keyboard');
+  const artistViewRef = useRef<'grid' | 'albums'>('grid');
   const kbPosRef = useRef({row: 0, col: 0});
-  const resIdxRef = useRef(0);
-  const filteredArtistsRef = useRef<PlexArtist[]>([]);
+  const allArtistsRef = useRef<PlexArtist[]>([]);
+  const rosterIdxRef = useRef(0); // roster cursor saved when drilling into an artist
   const artistAlbumsRef = useRef<PlexAlbum[]>([]);
   // Search-tab mirrors (handler is registered once → read live values via refs).
   const searchZoneRef = useRef<'keyboard' | 'results'>('keyboard');
@@ -249,17 +277,11 @@ export default function BrowseScreen({navigation, route}: any) {
     artistAlbumsRef.current = artistAlbums;
   }, [artistAlbums]);
 
-  // Live-filtered artist results (substring, case-insensitive).
-  const filteredArtists = useMemo(() => {
-    const q = artistQuery.trim().toLowerCase();
-    if (!q) {
-      return allArtists;
-    }
-    return allArtists.filter(a => a.name.toLowerCase().includes(q));
-  }, [allArtists, artistQuery]);
+  // Mirror the shuffled artist roster into a ref for the once-registered D-pad
+  // handler (which reads live values without waiting for a re-render).
   useEffect(() => {
-    filteredArtistsRef.current = filteredArtists;
-  }, [filteredArtists]);
+    allArtistsRef.current = allArtists;
+  }, [allArtists]);
 
   // Live-filtered album results: match album title OR artist (case-insensitive
   // substring). Empty query shows the whole catalog. Pure in-memory over the
@@ -280,25 +302,9 @@ export default function BrowseScreen({navigation, route}: any) {
 
   // Small state+ref setters so the once-registered handler always sees fresh
   // values without waiting for a re-render.
-  const setArtistZone = (z: ArtistZone) => {
-    artistZoneRef.current = z;
-    setArtistZoneState(z);
-  };
   const setKb = (row: number, col: number) => {
     kbPosRef.current = {row, col};
     setKbPos({row, col});
-  };
-  const setRes = (i: number) => {
-    resIdxRef.current = i;
-    setResIdxState(i);
-    const top = scrollTopFor(i, resTopRef.current, RES_VISIBLE);
-    if (top !== resTopRef.current) {
-      resTopRef.current = top;
-      resultsListRef.current?.scrollToOffset({
-        offset: top * RESULT_H,
-        animated: true,
-      });
-    }
   };
 
   const setRecentZone = (z: 'shuffle' | 'grid') => {
@@ -394,8 +400,9 @@ export default function BrowseScreen({navigation, route}: any) {
       if (!list.length) {
         setStatusMsg('No albums found on Plex.');
       }
-      // Artists are derived from the same cached catalog (no extra fetch).
-      const arts = await getArtists();
+      // Artists are derived from the same cached catalog (no extra fetch),
+      // shuffled so the tab shows the whole roster in random order like Albums.
+      const arts = await getShuffledArtists();
       setAllArtists(arts);
     } catch (e: any) {
       setStatusMsg('Could not load albums: ' + (e?.message || 'error'));
@@ -428,11 +435,15 @@ export default function BrowseScreen({navigation, route}: any) {
       ? listRef
       : tabRef.current === 'recent'
       ? recentListRef
-      : artistListRef;
+      : artistViewRef.current === 'albums'
+      ? artistListRef
+      : rosterListRef;
+  // The Artists tab is always a grid now (the roster, or one artist's releases),
+  // so both use the album-grid row-stepping scroll.
   const isAlbumGridActive = () =>
     tabRef.current === 'albums' ||
     tabRef.current === 'recent' ||
-    (tabRef.current === 'artists' && artistViewRef.current === 'albums');
+    tabRef.current === 'artists';
 
   const moveTo = (i: number) => {
     setIndex(i);
@@ -548,33 +559,7 @@ export default function BrowseScreen({navigation, route}: any) {
     }
   };
 
-  // --- artist search actions ------------------------------------------------
-  const applyKey = (key: Key) => {
-    // The D-pad listener is registered once, so this closure can't read the
-    // live `artistQuery` directly — use the functional updater to append to the
-    // current value instead of the stale first-render '' (which made each key
-    // replace the last).
-    setArtistQuery(q => {
-      let nq = q;
-      if (key.act === 'space') {
-        nq = q + ' ';
-      } else if (key.act === 'del') {
-        nq = q.slice(0, -1);
-      } else if (key.act === 'clear') {
-        nq = '';
-      } else {
-        nq = q + key.v;
-      }
-      return nq.slice(0, 40);
-    });
-    // Query changed → results reset to the top.
-    resIdxRef.current = 0;
-    setResIdxState(0);
-    resTopRef.current = 0;
-    resultsListRef.current?.scrollToOffset({offset: 0, animated: false});
-  };
-
-  // Same as applyKey but for the album Search tab (its own query/results).
+  // On-screen keyboard input for the album Search tab (its own query/results).
   const applySearchKey = (key: Key) => {
     setSearchQuery(q => {
       let nq = q;
@@ -600,19 +585,29 @@ export default function BrowseScreen({navigation, route}: any) {
     setSelectedArtist(a);
     setArtistAlbums(list);
     artistAlbumsRef.current = list;
+    // Remember the roster cursor so backing out lands on the same artist card.
+    rosterIdxRef.current = idxRef.current;
     setArtistView('albums');
     artistViewRef.current = 'albums';
-    setArtistZone('albumgrid');
     setIndex(0);
     idxRef.current = 0;
     topRowRef.current = 0;
     artistListRef.current?.scrollToOffset({offset: 0, animated: false});
   };
 
-  const backToSearch = (z: ArtistZone) => {
-    setArtistView('search');
-    artistViewRef.current = 'search';
-    setArtistZone(z);
+  const backToRoster = () => {
+    setArtistView('grid');
+    artistViewRef.current = 'grid';
+    // Restore the roster cursor saved when we drilled into this artist.
+    const i = rosterIdxRef.current;
+    setIndex(i);
+    idxRef.current = i;
+    const top = scrollTopFor(Math.floor(i / COLS), 0, VISIBLE_ROWS);
+    topRowRef.current = top;
+    rosterListRef.current?.scrollToOffset({
+      offset: top * ROW_H,
+      animated: false,
+    });
   };
 
   const activateContent = (i: number) => {
@@ -634,54 +629,46 @@ export default function BrowseScreen({navigation, route}: any) {
 
   // --- D-pad handler (JS-managed focus) -------------------------------------
   const onNavArtists = (k: string) => {
-    const az = artistZoneRef.current;
-
-    if (az === 'keyboard') {
-      const nav = navKeyboard(KEY_ROWS, kbPosRef.current, k);
-      if (nav.kind === 'move') {
-        setKb(nav.pos.row, nav.pos.col);
-      } else if (nav.kind === 'press') {
-        applyKey(nav.key);
-      } else if (nav.kind === 'exitLeft' || nav.kind === 'exitUp') {
-        setZone('tabs');
-      } else if (nav.kind === 'exitDown') {
-        setZone('back');
-      } else if (nav.kind === 'exitRight') {
-        // Only cross into the results column when there is something there.
-        if (filteredArtistsRef.current.length) {
-          setArtistZone('results');
+    // Grid view: the shuffled roster of all artists, navigated like the album
+    // grid. Select drills into that artist's releases.
+    if (artistViewRef.current === 'grid') {
+      const items = allArtistsRef.current;
+      const n = items.length;
+      const idx = idxRef.current;
+      const col = idx % COLS;
+      const row = Math.floor(idx / COLS);
+      if (k === 'left') {
+        if (col > 0) {
+          moveTo(idx - 1);
+        } else {
+          setZone('tabs');
         }
-      }
-      return;
-    }
-
-    if (az === 'results') {
-      const list = filteredArtistsRef.current;
-      const n = list.length;
-      const ri = resIdxRef.current;
-      if (k === 'up') {
-        if (ri > 0) {
-          setRes(ri - 1);
+      } else if (k === 'right') {
+        if (col < COLS - 1 && idx + 1 < n) {
+          moveTo(idx + 1);
+        }
+      } else if (k === 'up') {
+        if (row > 0) {
+          moveTo(idx - COLS);
         } else {
           setZone('tabs');
         }
       } else if (k === 'down') {
-        if (ri < n - 1) {
-          setRes(ri + 1);
+        if (idx + COLS < n) {
+          moveTo(idx + COLS);
         } else {
           setZone('back');
         }
-      } else if (k === 'left') {
-        setArtistZone('keyboard');
       } else if (k === 'select') {
-        if (list[ri]) {
-          openArtist(list[ri]);
+        if (items[idx]) {
+          openArtist(items[idx]);
         }
       }
       return;
     }
 
-    // az === 'albumgrid' — an artist's releases
+    // artistView === 'albums' — the selected artist's releases. Leaving the grid
+    // from its top row or left edge returns to the roster.
     const items = artistAlbumsRef.current;
     const n = items.length;
     const idx = idxRef.current;
@@ -691,7 +678,7 @@ export default function BrowseScreen({navigation, route}: any) {
       if (col > 0) {
         moveTo(idx - 1);
       } else {
-        backToSearch('results');
+        backToRoster();
       }
     } else if (k === 'right') {
       if (col < COLS - 1 && idx + 1 < n) {
@@ -701,7 +688,7 @@ export default function BrowseScreen({navigation, route}: any) {
       if (row > 0) {
         moveTo(idx - COLS);
       } else {
-        backToSearch('results');
+        backToRoster();
       }
     } else if (k === 'down') {
       if (idx + COLS < n) {
@@ -832,8 +819,9 @@ export default function BrowseScreen({navigation, route}: any) {
         : null;
     }
     if (t === 'artists') {
-      return artistViewRef.current === 'albums' &&
-        artistZoneRef.current === 'albumgrid'
+      // Only the releases view holds albums; the roster holds artists, so MENU
+      // (track listing) does nothing on the roster.
+      return artistViewRef.current === 'albums'
         ? artistAlbumsRef.current[i] || null
         : null;
     }
@@ -866,10 +854,9 @@ export default function BrowseScreen({navigation, route}: any) {
         setIndex(0);
         idxRef.current = 0;
         topRowRef.current = 0;
-        // Always land an Artists tab back on its search view.
-        setArtistView('search');
-        artistViewRef.current = 'search';
-        setArtistZone('keyboard');
+        // Always land the Artists tab back on its shuffled roster grid.
+        setArtistView('grid');
+        artistViewRef.current = 'grid';
         // Search tab always re-enters on the keyboard, results at the top.
         setSearchZone('keyboard');
         searchResIdxRef.current = 0;
@@ -887,11 +874,7 @@ export default function BrowseScreen({navigation, route}: any) {
         switchTab(TABS[ti + 1]);
       } else if (k === 'down' || k === 'select') {
         setZone('content');
-        if (tabRef.current === 'artists') {
-          setArtistZone(
-            artistViewRef.current === 'albums' ? 'albumgrid' : 'keyboard',
-          );
-        } else if (tabRef.current === 'search') {
+        if (tabRef.current === 'search') {
           setSearchZone('keyboard');
         }
       }
@@ -1073,80 +1056,39 @@ export default function BrowseScreen({navigation, route}: any) {
             artistAlbums,
             artistListRef,
             'artist-albums-grid',
-            zone === 'content' && artistZone === 'albumgrid' ? index : -1,
+            zone === 'content' ? index : -1,
           )}
         </View>
       );
     }
+    // Grid view: the shuffled roster of every artist, laid out like Albums.
     return (
-      <View style={styles.searchWrap}>
-        <View style={styles.queryBar}>
-          <Text
-            style={artistQuery ? styles.queryText : styles.queryPlaceholder}
-            numberOfLines={1}>
-            {artistQuery || 'Type an artist name…'}
-            {artistQuery ? <Text style={styles.caret}>▏</Text> : null}
-          </Text>
-        </View>
-        <View style={styles.searchRow}>
-          <View style={styles.keyboard}>
-            {KEY_ROWS.map((row, ri) => (
-              <View key={ri} style={styles.kbRow}>
-                {row.map((key, ci) => {
-                  const f =
-                    zone === 'content' &&
-                    artistZone === 'keyboard' &&
-                    kbPos.row === ri &&
-                    kbPos.col === ci;
-                  return (
-                    <View
-                      key={ci}
-                      style={[
-                        styles.key,
-                        key.act && styles.keyWide,
-                        f && styles.keyFocused,
-                      ]}>
-                      <Text
-                        style={[styles.keyText, f && styles.keyTextFocused]}>
-                        {key.l}
-                      </Text>
-                    </View>
-                  );
-                })}
-              </View>
-            ))}
-          </View>
-          <FlatList
-            key="artist-results"
-            ref={resultsListRef}
-            data={filteredArtists}
-            renderItem={({item, index: i}) => {
-              const f =
-                zone === 'content' && artistZone === 'results' && resIdx === i;
-              return (
-                <View
-                  style={[styles.resultItem, f && styles.resultItemFocused]}>
-                  <Text style={styles.resultName} numberOfLines={1}>
-                    {item.name}
-                  </Text>
-                  <Text style={styles.resultCount}>{item.count}</Text>
-                </View>
-              );
-            }}
-            keyExtractor={item => item.key}
-            extraData={`${artistZone}:${resIdx}`}
-            style={styles.resultsList}
-            getItemLayout={(_d, i) => ({
-              length: RESULT_H,
-              offset: RESULT_H * i,
-              index: i,
-            })}
-            ListEmptyComponent={
-              <Text style={styles.noResults}>No matching artists</Text>
-            }
+      <FlatList
+        key="artist-roster-grid"
+        ref={rosterListRef}
+        data={allArtists}
+        renderItem={({item, index: i}) => (
+          <ArtistCard
+            artist={item}
+            focused={zone === 'content' && index === i}
           />
-        </View>
-      </View>
+        )}
+        keyExtractor={item => item.key}
+        extraData={zone === 'content' ? index : -1}
+        numColumns={COLS}
+        columnWrapperStyle={styles.row}
+        style={styles.list}
+        initialNumToRender={20}
+        windowSize={7}
+        getItemLayout={(_data, i) => ({
+          length: ROW_H,
+          offset: ROW_H * i,
+          index: i,
+        })}
+        ListEmptyComponent={
+          <Text style={styles.noResults}>No artists found.</Text>
+        }
+      />
     );
   };
 
@@ -1350,11 +1292,14 @@ export default function BrowseScreen({navigation, route}: any) {
       )}
 
       {/* MENU is invisible without a prompt, so say so on the tabs that
-          actually show albums. */}
-      {activeTab === 'albums' ||
-      activeTab === 'recent' ||
-      activeTab === 'artists' ||
-      activeTab === 'search' ? (
+          actually show albums. The artist roster is its own case: OK opens the
+          artist rather than playing, and MENU does nothing there. */}
+      {activeTab === 'artists' && artistView === 'grid' ? (
+        <Text style={styles.menuHint}>OK: view artist</Text>
+      ) : activeTab === 'albums' ||
+        activeTab === 'recent' ||
+        activeTab === 'search' ||
+        (activeTab === 'artists' && artistView === 'albums') ? (
         <Text style={styles.menuHint}>
           OK: play album · ☰ Menu: track listing
         </Text>

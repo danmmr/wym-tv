@@ -151,10 +151,12 @@ export async function getShuffledAlbums(
 // Re-randomise on demand (kept for a future "reshuffle" affordance).
 export function reshuffle(): void {
   shuffledCache = null;
+  shuffledArtistsCache = null;
 }
 
 // --- artists (derived in-memory from the album catalog) ---------------------
 let artistsCache: PlexArtist[] | null = null;
+let shuffledArtistsCache: PlexArtist[] | null = null;
 
 // Unique artists, alphabetised. Built from the already-loaded album cache, so
 // this costs nothing beyond the album fetch — no extra Plex calls.
@@ -190,6 +192,30 @@ export async function getArtists(
     x.name.localeCompare(y.name, undefined, {sensitivity: 'base'}),
   );
   return artistsCache;
+}
+
+// All artists in a random-but-stable order (mirrors getShuffledAlbums), so the
+// Artists tab surfaces the whole roster shuffled instead of alphabetised. The
+// shuffle is computed once per session and cached, so navigating in and out of
+// the tab keeps the same order — and typed searches filter this shuffled list.
+export async function getShuffledArtists(
+  onProgress?: (loaded: number, total: number) => void,
+): Promise<PlexArtist[]> {
+  if (shuffledArtistsCache) {
+    return shuffledArtistsCache;
+  }
+  const artists = await getArtists(onProgress);
+  const seed = (Math.random() * 0xffffffff) >>> 0;
+  const rng = mulberry32(seed);
+  const arr = artists.slice();
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1));
+    const tmp = arr[i];
+    arr[i] = arr[j];
+    arr[j] = tmp;
+  }
+  shuffledArtistsCache = arr;
+  return shuffledArtistsCache;
 }
 
 // All releases by one artist (by artistKey), oldest first. Pure in-memory

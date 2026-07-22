@@ -812,7 +812,7 @@ const styles = StyleSheet.create({
     // inset and growing the bottom inset, so the footer clears this TV's crop.
     paddingHorizontal: 48,
     paddingTop: 12,
-    paddingBottom: 152,
+    paddingBottom: 110,
   },
   header: {
     flexDirection: 'row',
@@ -862,13 +862,13 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
   infoContainer: {
-    marginBottom: 6,
+    marginBottom: 2,
   },
   title: {
     fontSize: 24,
     fontWeight: 'bold',
     color: '#fff',
-    marginBottom: 8,
+    marginBottom: 4,
     textShadowColor: 'rgba(0,0,0,0.85)',
     textShadowOffset: {width: 0, height: 1},
     textShadowRadius: 4,
@@ -918,7 +918,7 @@ const styles = StyleSheet.create({
   progressContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 8,
+    marginBottom: 4,
   },
   time: {
     color: '#888',
@@ -939,13 +939,13 @@ const styles = StyleSheet.create({
   controls: {
     flexDirection: 'row',
     justifyContent: 'center',
-    marginBottom: 8,
+    marginBottom: 4,
     gap: 20,
   },
   button: {
     backgroundColor: '#3b9eff',
     paddingHorizontal: 25,
-    paddingVertical: 9,
+    paddingVertical: 7,
     borderRadius: 8,
     borderWidth: 3,
     borderColor: 'transparent',
@@ -964,7 +964,7 @@ const styles = StyleSheet.create({
   volumeContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 8,
+    marginBottom: 4,
   },
   volumeButton: {
     marginHorizontal: 10,
@@ -998,12 +998,12 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     gap: 16,
-    marginBottom: 8,
+    marginBottom: 4,
   },
   luckyButton: {
     backgroundColor: '#5b2bd9',
     paddingHorizontal: 30,
-    paddingVertical: 9,
+    paddingVertical: 7,
     borderRadius: 8,
     borderWidth: 3,
     borderColor: 'transparent',
@@ -1022,7 +1022,7 @@ const styles = StyleSheet.create({
     color: '#3b9eff80',
     fontSize: 13,
     textAlign: 'center',
-    marginBottom: 6,
+    marginBottom: 2,
   },
   footer: {
     flexDirection: 'row',

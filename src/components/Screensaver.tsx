@@ -11,11 +11,14 @@ import {
 } from '@shopify/react-native-skia';
 import type {SkImage} from '@shopify/react-native-skia';
 import ReAnimated, {
+  runOnJS,
+  useAnimatedReaction,
   useAnimatedStyle,
   useDerivedValue,
   useFrameCallback,
   useSharedValue,
 } from 'react-native-reanimated';
+import type {SharedValue} from 'react-native-reanimated';
 import {usePlayerStore} from '../store/playerStore';
 
 const {width, height} = Dimensions.get('window');
@@ -26,12 +29,17 @@ const {width, height} = Dimensions.get('window');
 // separate full-res canvases, so they stay crisp. uv is normalized by
 // resolution.y, so the look is identical at any DOWNSCALE.
 //
-// 720p because native 1080p looks no different on this panel from across a
-// room, and costs 2.25x the fill for it. Native IS affordable now (measured 6ms
-// GPU against a 16.7ms budget at 60fps) — an earlier note here claimed it was
-// not viable, based on a reading of 13 missed vsyncs and a 4950ms 90th
-// percentile that turned out to be a one-off stall, not a fill-rate limit. So
-// this is a "no benefit" call, not a "can't afford it" one.
+// 720p, and do NOT go lower chasing GPU time — that was measured and it does
+// not work. 2.0 was tried (480x270 dp, 960x540 physical, a 44% fill cut) and
+// the 50th-percentile GPU time went 15ms -> 14ms. Essentially nothing. Fill is
+// not what the GPU time is spent on; the cost is fixed per-frame work
+// compositing the three canvases and blitting, which shrinking the source
+// buffer does not touch. All 2.0 actually bought was 6.9MB of graphics memory
+// (32.9 -> 26.0MB), paid for in visible softness on the panel.
+//
+// For the same reason, do not read the raw GPU number as a problem. 14-16ms of
+// a 16.7ms budget looks alarming and is not: missed vsyncs are 0, jank is
+// 0.3-0.5%, and total frame time is 5-6ms median. Nothing is hitting the wall.
 //
 // Note `width`/`height` are DP: the window is 960x540 dp on the 1080p panel
 // (density 320, PixelRatio 2). So DOWNSCALE 1.5 gives a 640x360 dp canvas,
@@ -366,19 +374,56 @@ function makeCirclePath() {
   return path;
 }
 
-// Screensaver frame cap. Everything animated here is slow and ambient (13-40s
-// field drift, 17s/13s art orbit, beat-period ring decay) - 30fps is visually
-// identical from the couch, and halving every canvas's redraw rate halves the
-// screensaver's continuous CPU/GPU load and heat (the multi-hour
-// throttle/lockup driver on the 1.7GB Fire Stick).
-// 60. Measured with a single canvas at 720p: 156 frames/5s (an exact, evenly
-// paced 30) with 0 missed vsyncs and a GPU time of 4ms against a 33ms budget —
-// so at 30 the hardware was idle 88% of the time and the warp tunnel STILL read
-// as sluggish. Nothing was struggling; 30 is simply too low a sample rate for
-// fast motion. Going to 60 takes the GPU duty cycle from ~12% to ~24%, which is
-// nowhere near the load that caused the original lockups (58% CPU sustained,
-// before both the half-res canvas and the cap existed).
-const SAVER_FPS = 60;
+// Screensaver frame caps. Everything animated here is slow and ambient (13-40s
+// field drift, 17s/13s art orbit, beat-period ring decay), so the cap costs
+// nothing visually and buys back continuous CPU/GPU load and heat — the
+// multi-hour throttle/lockup driver on the 1.7GB Fire Stick.
+//
+// An earlier note here set this to 60 on the strength of "4ms GPU against a
+// 33ms budget", concluding the GPU sat idle at 30 and the warp tunnel was
+// merely undersampled. That measurement was taken with a SINGLE canvas at
+// 720p, and it does not survive assembly. Measured on the real screensaver
+// (three canvases: visualizer + album art + clock text) at SAVER_FPS 60:
+//
+//   602 frames in 10s          — an exact 60fps, 0 missed vsyncs
+//   50th percentile GPU: 16ms  — against a 16.7ms budget, i.e. ~96% duty cycle
+//   65% CPU sustained          — 42.4% UI thread + 21.8% RenderThread
+//
+// mqt_js sat at 3.6%, so this is not shader math or JS: it is per-frame canvas
+// re-recording on the UI thread, which scales with frame rate AND with canvas
+// count. 60fps was doubling the cost of all three canvases at once, landing on
+// the same profile ("58% CPU sustained") that the original lockups were blamed
+// on. Hence back to 30 across the board — deliberately, including the warp
+// tunnel, whose sluggishness at 30 is accepted as the price.
+const SAVER_FPS = 30;
+
+// ONE clock for the whole screensaver, created at the root and passed down.
+//
+// Be clear about what the cap does and does not do, because it is easy to
+// assume the wrong thing. It does NOT reduce how often the window presents:
+// measured on this build at SAVER_FPS 30, gfxinfo reports 601/603/603/604
+// frames per 10s — a flat 60fps — on both plasma and starfield. Presentation
+// stays pinned at vsync because useCappedClock registers a useFrameCallback,
+// and a reanimated frame callback wakes the UI thread EVERY vsync by design.
+// Gating the published value cannot change that; only unregistering would.
+//
+// What the cap actually buys is that most of those frames become cheap. The
+// derived values only change every `every` vsyncs, so the frames in between
+// re-present unchanged content instead of re-recording the canvases. That shows
+// up as UI-thread frame time: 20ms median at 60, 5ms median at 30, which is
+// where 65% -> ~46% process CPU came from. Fewer frames was never the mechanism.
+//
+// One shared clock rather than one per consumer, because three consumers meant
+// three useFrameCallback registrations all waking every vsync to do the same
+// accumulator arithmetic. Measured CPU between the two arrangements is within
+// noise of itself (43.0% split vs 45.8% shared), so this is chosen for being one
+// mechanism instead of three, not for a measured win.
+//
+// Do not expect more from tuning SAVER_FPS — ~46% process CPU is where frame
+// pacing bottoms out. Lowering DOWNSCALE was tried next and did nothing either
+// (see the note there). What is left is per-frame work that happens regardless
+// of rate or resolution, so the next real win is doing less of it, not doing it
+// less often or smaller.
 
 // Drop-in replacement for skia's useClock (shared value, ms) that only writes
 // when the quantized frame advances. Derived values reading it - and the
@@ -431,18 +476,39 @@ function useCappedClock(fps: number) {
   return t;
 }
 
-function AlbumArt({
+// memo'd: a re-render of the Screensaver root must not rebuild this subtree and
+// its Skia objects. Every prop is a primitive or the stable shared clock, so the
+// default shallow compare is the right one.
+const AlbumArt = React.memo(function AlbumArt({
   uri,
   showProgressRing,
   trackProgress,
+  clock,
 }: {
   uri: string;
   showProgressRing: boolean;
-  trackProgress: number;
+  trackProgress: SharedValue<number>;
+  clock: SharedValue<number>;
 }) {
   const [img, setImg] = useState<SkImage | null>(null);
-  const clock = useCappedClock(SAVER_FPS);
   const clipPath = useMemo(makeCirclePath, []);
+
+  // The ring is drawn from an SVG path STRING built in JS, so unlike the shader
+  // this one cannot read the shared value directly — it has to come back across
+  // to the render thread. Gate that on showProgressRing (which is opt-in and off
+  // by default): with the ring hidden this component never re-renders on a poll
+  // at all, and with it shown it re-renders at poll rate, which is what a live
+  // progress ring inherently costs.
+  const [ringProgress, setRingProgress] = useState(0);
+  useAnimatedReaction(
+    () => (showProgressRing ? trackProgress.value : 0),
+    (v, prev) => {
+      if (v !== prev) {
+        runOnJS(setRingProgress)(v);
+      }
+    },
+    [showProgressRing],
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -509,13 +575,13 @@ function AlbumArt({
     const r = PROGRESS_RING_R;
     const cx = ART_RADIUS;
     const cy = ART_RADIUS;
-    if (trackProgress >= 1) {
+    if (ringProgress >= 1) {
       // Full circle: two semicircles avoids the degenerate coincident-endpoint case
       return `M ${cx} ${cy - r} A ${r} ${r} 0 1 1 ${cx} ${
         cy + r
       } A ${r} ${r} 0 1 1 ${cx} ${cy - r}`;
     }
-    const sweep = trackProgress * 360;
+    const sweep = ringProgress * 360;
     const startRad = -Math.PI / 2; // 12 o'clock
     const endRad = startRad + (sweep * Math.PI) / 180;
     const x1 = cx + r * Math.cos(startRad);
@@ -525,7 +591,7 @@ function AlbumArt({
     const largeArc = sweep > 180 ? 1 : 0;
     // M = move to start (no drawn line); A = arc to end; no Z = open path
     return `M ${x1} ${y1} A ${r} ${r} 0 ${largeArc} 1 ${x2} ${y2}`;
-  }, [trackProgress]);
+  }, [ringProgress]);
 
   if (!img) {
     return null;
@@ -541,7 +607,7 @@ function AlbumArt({
         {showProgressRing && (
           /* Song-progress ring — fills clockwise, completes when the song ends */
           <Group transform={artTransform}>
-            {trackProgress > 0 && (
+            {ringProgress > 0 && (
               <Path
                 path={progressArcPath}
                 color="rgba(255,255,255,0.45)"
@@ -564,7 +630,7 @@ function AlbumArt({
       </Group>
     </Canvas>
   );
-}
+});
 
 function titleToBpm(title: string): number {
   let hash = 0;
@@ -576,21 +642,23 @@ function titleToBpm(title: string): number {
 
 interface VisualProps {
   volume: number;
-  trackProgress: number;
+  trackProgress: SharedValue<number>;
   bpm: number;
   visualizer: Visualizer;
   accent: string;
+  clock: SharedValue<number>;
 }
 
-function VisualizerCanvas({
+// memo'd for the same reason as AlbumArt — this one owns the full-screen shader
+// canvas, so rebuilding it on an unrelated root render is the expensive case.
+const VisualizerCanvas = React.memo(function VisualizerCanvas({
   volume,
   trackProgress,
   bpm,
   visualizer,
   accent,
+  clock,
 }: VisualProps) {
-  const clock = useCappedClock(SAVER_FPS);
-
   // Derived once per accent change, NOT per frame — this is plain JS trig and
   // the uniforms worklet runs 30x a second.
   const {palLo, palHi} = useMemo(() => paletteFor(accent), [accent]);
@@ -622,7 +690,7 @@ function VisualizerCanvas({
     const beatPeriod = 60 / bpm;
     const beatPulse = Math.pow(1 - (t % beatPeriod) / beatPeriod, 2);
     const density = 0.7 + (volume / 100) * 0.6 + beatPulse * 0.2;
-    const colorShift = (trackProgress * 0.8 + t * 0.018) % 1;
+    const colorShift = (trackProgress.value * 0.8 + t * 0.018) % 1;
     return {
       resolution: [LOW_W, LOW_H],
       time: warpTime,
@@ -650,7 +718,7 @@ function VisualizerCanvas({
       </Fill>
     </Canvas>
   );
-}
+});
 
 function clockNow(): string {
   return new Date().toLocaleTimeString([], {
@@ -717,14 +785,43 @@ function Screensaver({
   visualizer = 'plasma',
   showProgressRing = false,
 }: ScreensaverProps) {
-  const {title, artist, albumArt, volume, currentPos, duration, accent} =
-    usePlayerStore();
+  // Subscribe field by field, NOT `usePlayerStore()` bare. The bare call
+  // re-renders this whole subtree on every set() the poll loop makes, including
+  // ones that touch nothing rendered here; per-field selectors only fire when
+  // that field actually changes.
+  const title = usePlayerStore(s => s.title);
+  const artist = usePlayerStore(s => s.artist);
+  const albumArt = usePlayerStore(s => s.albumArt);
+  const volume = usePlayerStore(s => s.volume);
+  const accent = usePlayerStore(s => s.accent);
   const ringColor = accent || '#78a0ff';
 
+  // The single clock for every animated thing in here — the visualizer field,
+  // the album art orbit, and the wandering text transform below. The clock
+  // STRING is repainted off a 1s setInterval and never needed a frame clock.
   const clock = useCappedClock(SAVER_FPS);
   const [clockStr, setClockStr] = useState(clockNow);
 
-  const trackProgress = duration > 0 ? Math.min(1, currentPos / duration) : 0;
+  // currentPos changes on EVERY WiiM poll, and it is the last thing in here that
+  // did. As a selector it re-rendered this tree on every poll, which memoising
+  // the canvases could not prevent — trackProgress was a changing prop, so their
+  // shallow compare failed every time and the Skia objects were rebuilt.
+  //
+  // So it is a shared value fed from a store SUBSCRIPTION rather than a
+  // selector: the write happens outside React entirely, the canvases read it
+  // inside their worklets, and a poll now causes no render at all.
+  const trackProgress = useSharedValue(0);
+  useEffect(() => {
+    const compute = () => {
+      const {currentPos, duration} = usePlayerStore.getState();
+      return duration > 0 ? Math.min(1, currentPos / duration) : 0;
+    };
+    trackProgress.value = compute();
+    return usePlayerStore.subscribe(() => {
+      trackProgress.value = compute();
+    });
+  }, [trackProgress]);
+
   const bpm = titleToBpm(title || 'default');
 
   useEffect(() => {
@@ -734,10 +831,20 @@ function Screensaver({
     };
   }, []);
 
+  // Only tick while the clock is actually on screen. The render below shows the
+  // clock ONLY when `title` is empty, but this interval used to run regardless —
+  // so with music playing it fired a setState every second whose value was never
+  // displayed, re-rendering this entire subtree ~60x a minute for nothing. The
+  // condition is deliberately the same expression the render branches on; if one
+  // changes the other must too.
   useEffect(() => {
+    if (title) {
+      return;
+    }
+    setClockStr(clockNow());
     const id = setInterval(() => setClockStr(clockNow()), 1000);
     return () => clearInterval(id);
-  }, []);
+  }, [title]);
 
   // Text drift off the capped clock, not RN Animated.loop - the native-driver
   // loop animated the transform every vsync, which alone kept the whole window
@@ -766,6 +873,7 @@ function Screensaver({
         bpm={bpm}
         visualizer={visualizer}
         accent={ringColor}
+        clock={clock}
       />
 
       {!!albumArt && (
@@ -773,6 +881,7 @@ function Screensaver({
           uri={albumArt}
           showProgressRing={showProgressRing}
           trackProgress={trackProgress}
+          clock={clock}
         />
       )}
 

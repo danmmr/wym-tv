@@ -14,7 +14,8 @@ import {useFocusEffect} from '@react-navigation/native';
 import {useDeviceStore} from '../store/deviceStore';
 import {WiiMClient} from '../api/wiim';
 import {
-  getShuffledAlbums,
+  getAlbumSample,
+  loadAllAlbums,
   getShuffledArtists,
   getAlbumsByArtist,
   getRecentlyAddedAlbums,
@@ -176,11 +177,19 @@ export default function BrowseScreen({navigation, route}: any) {
   const [inputSources, setInputSources] = useState<any[]>([]);
   const [, setClient] = useState<WiiMClient | null>(null);
 
-  // Album grid state
+  // Album grid state. `albums` is a bounded RANDOM SAMPLE (ALBUM_SAMPLE), not
+  // the whole library — one Plex request instead of paging ~4.5k albums.
   const [albums, setAlbums] = useState<PlexAlbum[]>([]);
   const [albumsLoading, setAlbumsLoading] = useState(true);
   const [progress, setProgress] = useState({loaded: 0, total: 0});
   const [statusMsg, setStatusMsg] = useState('');
+
+  // The COMPLETE catalog, loaded lazily. Artists and Search need every album to
+  // be correct, so they pull this on first open rather than making the Albums
+  // grid wait for it. Kept separate from `albums` so neither truncates.
+  const [catalog, setCatalog] = useState<PlexAlbum[]>([]);
+  const [libraryLoading, setLibraryLoading] = useState(false);
+  const libraryRequested = useRef(false);
 
   // Recently added grid state (its own light query, not the full catalog).
   const [recentAlbums, setRecentAlbums] = useState<PlexAlbum[]>([]);
@@ -285,17 +294,18 @@ export default function BrowseScreen({navigation, route}: any) {
 
   // Live-filtered album results: match album title OR artist (case-insensitive
   // substring). Empty query shows the whole catalog. Pure in-memory over the
-  // already-loaded `albums` — no extra Plex calls.
+  // lazily-loaded full `catalog` — NOT the 500-album grid sample, so searching
+  // still reaches every album in the library. No extra Plex calls.
   const filteredSearch = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     if (!q) {
-      return albums;
+      return catalog;
     }
-    return albums.filter(
+    return catalog.filter(
       a =>
         a.title.toLowerCase().includes(q) || a.artist.toLowerCase().includes(q),
     );
-  }, [albums, searchQuery]);
+  }, [catalog, searchQuery]);
   useEffect(() => {
     filteredSearchRef.current = filteredSearch;
   }, [filteredSearch]);
@@ -393,21 +403,40 @@ export default function BrowseScreen({navigation, route}: any) {
     setAlbumsLoading(true);
     setStatusMsg('');
     try {
-      const list = await getShuffledAlbums((loaded, total) =>
-        setProgress({loaded, total}),
-      );
+      // A single sort=random request — the grid no longer waits on the catalog.
+      const list = await getAlbumSample();
       setAlbums(list);
       if (!list.length) {
         setStatusMsg('No albums found on Plex.');
       }
-      // Artists are derived from the same cached catalog (no extra fetch),
-      // shuffled so the tab shows the whole roster in random order like Albums.
-      const arts = await getShuffledArtists();
-      setAllArtists(arts);
     } catch (e: any) {
       setStatusMsg('Could not load albums: ' + (e?.message || 'error'));
     } finally {
       setAlbumsLoading(false);
+    }
+  };
+
+  // Artists and Search are the two tabs that genuinely need every album, so
+  // they share one lazy load of the full catalog on first open. getShuffledArtists()
+  // derives from the same in-api cache, so this stays a single fetch, not two.
+  const loadLibrary = async () => {
+    if (libraryRequested.current) {
+      return;
+    }
+    libraryRequested.current = true;
+    setLibraryLoading(true);
+    setProgress({loaded: 0, total: 0});
+    try {
+      const all = await loadAllAlbums((loaded, total) =>
+        setProgress({loaded, total}),
+      );
+      setCatalog(all);
+      setAllArtists(await getShuffledArtists());
+    } catch (e: any) {
+      setStatusMsg('Could not load library: ' + (e?.message || 'error'));
+      libraryRequested.current = false; // let the next tab entry retry
+    } finally {
+      setLibraryLoading(false);
     }
   };
 
@@ -851,6 +880,10 @@ export default function BrowseScreen({navigation, route}: any) {
       const switchTab = (nextTab: string) => {
         setActiveTab(nextTab);
         tabRef.current = nextTab;
+        // Artists and Search need the full catalog; fetch it on first entry.
+        if (nextTab === 'artists' || nextTab === 'search') {
+          loadLibrary();
+        }
         setIndex(0);
         idxRef.current = 0;
         topRowRef.current = 0;
@@ -1192,10 +1225,8 @@ export default function BrowseScreen({navigation, route}: any) {
         albumsLoading ? (
           <View style={styles.loadingBox}>
             <ActivityIndicator size="large" color="#3b9eff" />
-            <Text style={styles.loadingText}>
-              Loading albums{' '}
-              {progress.total ? `${progress.loaded} / ${progress.total}` : '…'}
-            </Text>
+            {/* One request now, so there is no page progress to report. */}
+            <Text style={styles.loadingText}>Loading albums…</Text>
           </View>
         ) : (
           albumGrid(
@@ -1248,19 +1279,25 @@ export default function BrowseScreen({navigation, route}: any) {
           </View>
         )
       ) : activeTab === 'artists' ? (
-        albumsLoading ? (
+        libraryLoading ? (
           <View style={styles.loadingBox}>
             <ActivityIndicator size="large" color="#3b9eff" />
-            <Text style={styles.loadingText}>Loading library…</Text>
+            <Text style={styles.loadingText}>
+              Loading library{' '}
+              {progress.total ? `${progress.loaded} / ${progress.total}` : '…'}
+            </Text>
           </View>
         ) : (
           renderArtistsTab()
         )
       ) : activeTab === 'search' ? (
-        albumsLoading ? (
+        libraryLoading ? (
           <View style={styles.loadingBox}>
             <ActivityIndicator size="large" color="#3b9eff" />
-            <Text style={styles.loadingText}>Loading library…</Text>
+            <Text style={styles.loadingText}>
+              Loading library{' '}
+              {progress.total ? `${progress.loaded} / ${progress.total}` : '…'}
+            </Text>
           </View>
         ) : (
           renderSearchTab()

@@ -45,6 +45,44 @@ if [ ${#TARGETS[@]} -eq 0 ]; then
   TARGETS=("$PRIMARY")
 fi
 
+# --- Plex token ------------------------------------------------------------
+# The app is an APK on a Fire Stick, so unlike the Python tooling in a local helper script
+# (which reads ~/.config/plex/token at runtime via plex_creds.py) it has to bake
+# the token in at build time. Sync it from that same file here so a rotation is
+# still a one-file edit and can never leave the sticks holding a dead token.
+#
+# Why this matters: Plex keeps honouring a STALE token for metadata, so browsing,
+# artwork and track listings all look perfectly healthy — it refuses only media
+# parts, and answers 503 rather than 401. The WiiM fetches those stream URLs
+# itself, treats each 503 as a dead track and advances, so a whole album rips
+# past in seconds. That is what broke on 2026-08-02.
+TOKEN_FILE="$HOME/.config/plex/token"
+CFG="src/config/plex.ts"
+
+if [ -f "$TOKEN_FILE" ]; then
+  FILE_TOKEN=$(tr -d '[:space:]' < "$TOKEN_FILE")
+  CFG_TOKEN=$(sed -n "s/^[[:space:]]*token:[[:space:]]*'\([^']*\)'.*/\1/p" "$CFG" | head -1)
+  if [ -z "$FILE_TOKEN" ]; then
+    echo "==> WARNING: $TOKEN_FILE is empty; keeping the token already in $CFG" >&2
+  elif [ "$FILE_TOKEN" != "$CFG_TOKEN" ]; then
+    # Rewrite just the token line, preserving indentation and the rest of the file.
+    awk -v tok="$FILE_TOKEN" '
+      /^[[:space:]]*token:[[:space:]]*'\''/ && !done {
+        match($0, /^[[:space:]]*/)
+        printf "%stoken: '\''%s'\'',\n", substr($0, 1, RLENGTH), tok
+        done = 1
+        next
+      }
+      { print }
+    ' "$CFG" > "$CFG.tmp" && mv "$CFG.tmp" "$CFG"
+    echo "==> Plex token synced from $TOKEN_FILE"
+  else
+    echo "==> Plex token already current"
+  fi
+else
+  echo "==> WARNING: $TOKEN_FILE not found; using the token already in $CFG" >&2
+fi
+
 # --- Checks ----------------------------------------------------------------
 # Cheap next to a gradle build, and they catch the encoding regressions that
 # would otherwise only show up as mangled metadata on the TV.
@@ -53,6 +91,45 @@ if [ "$RUN_CHECKS" -eq 1 ]; then
   npx tsc --noEmit
   echo "==> Running tests..."
   npx jest --silent
+
+  # Verify the token can actually STREAM, not just browse. A range request
+  # against a real media part is the only check that tells those apart:
+  # a stale token returns 503 here while /library/sections still returns 200.
+  echo "==> Checking Plex streaming..."
+  P_BASE=$(sed -n "s/^[[:space:]]*baseUrl:[[:space:]]*'\([^']*\)'.*/\1/p" "$CFG" | head -1)
+  P_TOK=$(sed -n "s/^[[:space:]]*token:[[:space:]]*'\([^']*\)'.*/\1/p" "$CFG" | head -1)
+  P_SEC=$(sed -n "s/^[[:space:]]*musicSection:[[:space:]]*\([0-9]*\).*/\1/p" "$CFG" | head -1)
+
+  PART=$(curl -s --max-time 20 -H 'Accept: application/json' \
+    "$P_BASE/library/sections/$P_SEC/all?type=10&sort=random&X-Plex-Container-Size=1&X-Plex-Token=$P_TOK" \
+    | python3 -c 'import sys,json
+try:
+    print(json.load(sys.stdin)["MediaContainer"]["Metadata"][0]["Media"][0]["Part"][0]["key"])
+except Exception:
+    pass' 2>/dev/null || true)
+
+  if [ -z "$PART" ]; then
+    # Could not even list a track: server down, or unreachable from this Mac.
+    # Not necessarily a bad token, so warn rather than block the build.
+    echo "    WARNING: could not reach Plex at $P_BASE to verify the token" >&2
+  else
+    CODE=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 -r 0-1023 \
+      "$P_BASE$PART?X-Plex-Token=$P_TOK" || echo 000)
+    case "$CODE" in
+      200|206)
+        echo "    streaming OK (HTTP $CODE)" ;;
+      401|403)
+        echo "    Plex rejected the token (HTTP $CODE). Update $TOKEN_FILE." >&2
+        exit 1 ;;
+      503)
+        echo "    Plex returns 503 on media parts — the token is stale (browsing still works)." >&2
+        echo "    Put the current token in $TOKEN_FILE and re-run; otherwise the sticks will" >&2
+        echo "    skip through every album in seconds." >&2
+        exit 1 ;;
+      *)
+        echo "    WARNING: unexpected HTTP $CODE fetching a media part" >&2 ;;
+    esac
+  fi
 fi
 
 # --- Build -----------------------------------------------------------------

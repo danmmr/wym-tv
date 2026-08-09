@@ -22,6 +22,11 @@ export interface PlayerState {
   bitDepth?: string; // bits, e.g. "16"
   bitRate?: string; // kbps, e.g. "320"
   codec?: string; // display label from Plex, e.g. "FLAC" / "ALAC" / "MP3"
+  // Real per-track artist from Plex, used to override `artist` (which comes
+  // from the WiiM's queue metadata and reads "Various Artists" on a
+  // compilation). Undefined until Plex answers, and whenever the track has no
+  // Plex id — the UI falls back to `artist`.
+  trackArtist?: string;
   // Accent color derived from the current cover art (adaptive theming). Undefined
   // until the art resolves; the UI falls back to the default blue when unset.
   accent?: string; // hex, e.g. "#3b9eff"

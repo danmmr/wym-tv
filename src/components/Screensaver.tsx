@@ -790,7 +790,7 @@ function Screensaver({
   // ones that touch nothing rendered here; per-field selectors only fire when
   // that field actually changes.
   const title = usePlayerStore(s => s.title);
-  const artist = usePlayerStore(s => s.artist);
+  const artist = usePlayerStore(s => s.trackArtist || s.artist);
   const albumArt = usePlayerStore(s => s.albumArt);
   const volume = usePlayerStore(s => s.volume);
   const accent = usePlayerStore(s => s.accent);

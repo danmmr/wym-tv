@@ -28,7 +28,7 @@ import {
   getRandomAlbum,
   buildAlbumQueue,
   buildStationQueue,
-  getTrackCodec,
+  getTrackInfo,
 } from '../api/plex';
 import type {StationKind} from '../api/plex';
 import {decodeHex} from '../api/hex';
@@ -202,7 +202,7 @@ export default function NowPlayingScreen({navigation}: any) {
         bitRate: md?.bitRate || undefined,
       });
       maybeRefillStation(c, status);
-      maybeFetchCodec(md?.trackId);
+      maybeFetchTrackInfo(md?.trackId);
       return true;
     } catch (error) {
       return false;
@@ -239,20 +239,29 @@ export default function NowPlayingScreen({navigation}: any) {
     scheduleNextPoll();
   };
 
-  // Look up the codec (FLAC/ALAC/MP3) from Plex when the track changes. Plex is
-  // the only source for this; cache by trackId so we hit it once per track.
-  const maybeFetchCodec = (trackId?: string) => {
+  // Look up the codec (FLAC/ALAC/MP3) and the real per-track artist from Plex
+  // when the track changes. Plex is the only source for either; cache by
+  // trackId so we hit it once per track.
+  const maybeFetchTrackInfo = (trackId?: string) => {
     if (!trackId || trackId === codecTrackRef.current) {
       return;
     }
     codecTrackRef.current = trackId;
-    usePlayerStore.getState().setPlayerState({codec: undefined}); // clear stale
-    getTrackCodec(trackId)
-      .then(codec => {
+    // Clear stale values so the previous track's codec/artist never shows
+    // against the new one (artist falls back to the WiiM's own value).
+    usePlayerStore
+      .getState()
+      .setPlayerState({codec: undefined, trackArtist: undefined});
+    getTrackInfo(trackId)
+      .then(info => {
         // Ignore if the track changed again while we were fetching.
-        if (codecTrackRef.current === trackId && codec) {
-          usePlayerStore.getState().setPlayerState({codec});
+        if (codecTrackRef.current !== trackId) {
+          return;
         }
+        usePlayerStore.getState().setPlayerState({
+          codec: info.codec || undefined,
+          trackArtist: info.artist || undefined,
+        });
       })
       .catch(() => {});
   };
@@ -633,7 +642,7 @@ export default function NowPlayingScreen({navigation}: any) {
       <View style={styles.infoContainer}>
         <Text style={styles.title}>{playerState.title}</Text>
         <Text style={[styles.artist, {color: accent}]}>
-          {playerState.artist}
+          {playerState.trackArtist || playerState.artist}
         </Text>
         <Text style={styles.album}>{playerState.album}</Text>
         {resTier() || formatLine() ? (

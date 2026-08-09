@@ -65,8 +65,11 @@ const str = (v: any, fallback = ''): string =>
   v === undefined || v === null ? fallback : String(v);
 
 // --- album catalog (cached in-session for a stable random order) ------------
+// albumCache is the COMPLETE catalog. It backs getArtists()/getAlbumsByArtist()
+// and the Search tab, so it must never be seeded with a partial result. It is
+// now loaded lazily — only the tabs that genuinely need every album pay for it.
 let albumCache: PlexAlbum[] | null = null;
-let shuffledCache: PlexAlbum[] | null = null;
+let sampleCache: PlexAlbum[] | null = null;
 
 const PAGE = 800;
 
@@ -126,31 +129,67 @@ function mulberry32(seed: number): () => number {
   };
 }
 
-// Albums in a random-but-stable order, computed once per session and cached so
-// navigating in and out of the grid keeps the same layout.
-export async function getShuffledAlbums(
-  onProgress?: (loaded: number, total: number) => void,
+// How many albums the Albums grid shows. A sample, not the catalog.
+export const ALBUM_SAMPLE = 500;
+
+// A bounded random sample of the library for the Albums grid. Plex's own
+// sort=random does the sampling server-side, so this is ONE request instead of
+// paging the whole catalog (~4.5k albums = 6 sequential round trips), and holds
+// a fraction of the objects — which matters on a 1.7 GB stick.
+//
+// Cached for the session so navigating in and out of the grid keeps the same
+// layout, exactly as the previous full-catalog shuffle did.
+//
+// Deliberately does NOT populate albumCache: that is the complete-catalog cache
+// behind the Artists roster, per-artist discographies and Search, and seeding it
+// with a 500-album sample would silently truncate all three.
+export async function getAlbumSample(
+  count = ALBUM_SAMPLE,
 ): Promise<PlexAlbum[]> {
-  if (shuffledCache) {
-    return shuffledCache;
+  if (sampleCache) {
+    return sampleCache;
   }
-  const albums = await loadAllAlbums(onProgress);
-  const seed = (Math.random() * 0xffffffff) >>> 0;
-  const rng = mulberry32(seed);
-  const arr = albums.slice();
-  for (let i = arr.length - 1; i > 0; i--) {
-    const j = Math.floor(rng() * (i + 1));
-    const tmp = arr[i];
-    arr[i] = arr[j];
-    arr[j] = tmp;
+  // If the full catalog already happens to be in memory (Artists or Search was
+  // opened first), sample from it rather than making another round trip.
+  if (albumCache && albumCache.length) {
+    const seeded = mulberry32((Math.random() * 0xffffffff) >>> 0);
+    const arr = albumCache.slice();
+    for (let i = arr.length - 1; i > 0; i--) {
+      const j = Math.floor(seeded() * (i + 1));
+      const tmp = arr[i];
+      arr[i] = arr[j];
+      arr[j] = tmp;
+    }
+    sampleCache = arr.slice(0, count);
+    return sampleCache;
   }
-  shuffledCache = arr;
-  return shuffledCache;
+  const mc = await plexGet(
+    `/library/sections/${PLEX.musicSection}/all` +
+      '?type=9&excludeFields=summary&sort=random' +
+      `&X-Plex-Container-Start=0&X-Plex-Container-Size=${count}`,
+  );
+  const out: PlexAlbum[] = [];
+  for (const d of mc.Metadata || []) {
+    if (d.ratingKey == null) {
+      continue;
+    }
+    out.push({
+      ratingKey: str(d.ratingKey),
+      title: str(d.title),
+      artist: str(d.parentTitle),
+      artistKey: str(d.parentRatingKey),
+      thumb: str(d.thumb),
+      year: str(d.year),
+    });
+  }
+  sampleCache = out;
+  return out;
 }
 
-// Re-randomise on demand (kept for a future "reshuffle" affordance).
+// Re-randomise on demand (kept for a future "reshuffle" affordance). Drops the
+// album sample too, so a reshuffle draws a fresh 500 from the library.
 export function reshuffle(): void {
-  shuffledCache = null;
+  sampleCache = null;
   shuffledArtistsCache = null;
 }
 
@@ -194,7 +233,7 @@ export async function getArtists(
   return artistsCache;
 }
 
-// All artists in a random-but-stable order (mirrors getShuffledAlbums), so the
+// All artists in a random-but-stable order (mirrors getAlbumSample), so the
 // Artists tab surfaces the whole roster shuffled instead of alphabetised. The
 // shuffle is computed once per session and cached, so navigating in and out of
 // the tab keeps the same order — and typed searches filter this shuffled list.
@@ -233,6 +272,25 @@ export function getAlbumsByArtist(key: string): PlexAlbum[] {
     );
 }
 
+// --- track artist -----------------------------------------------------------
+// A track's `grandparentTitle` is the ALBUM artist, which on a compilation is
+// the "Various Artists" placeholder rather than whoever actually performed the
+// track. Plex keeps the real per-track credit in `originalTitle` (populated
+// whenever it differs from the album artist). So: on a Various-Artists album,
+// prefer originalTitle; everywhere else keep grandparentTitle, which is the
+// canonical artist name — originalTitle on a normal album is usually absent
+// and when present is a variant spelling or a "feat." credit we don't want
+// replacing the artist name.
+const VARIOUS_RE = /^\s*various(\s*artists?)?\s*$/i;
+
+export function trackArtist(t: any): string {
+  const albumArtist = str(t.grandparentTitle);
+  if (VARIOUS_RE.test(albumArtist)) {
+    return str(t.originalTitle) || albumArtist;
+  }
+  return albumArtist;
+}
+
 // --- album tracks (for building the WiiM play queue) ------------------------
 export async function getAlbumTracks(ratingKey: string): Promise<PlexTrack[]> {
   const mc = await plexGet(`/library/metadata/${ratingKey}/children`);
@@ -247,7 +305,7 @@ export async function getAlbumTracks(ratingKey: string): Promise<PlexTrack[]> {
     tracks.push({
       ratingKey: str(t.ratingKey),
       title: str(t.title),
-      artist: str(t.grandparentTitle),
+      artist: trackArtist(t),
       album: str(t.parentTitle),
       durationMs: str(t.duration, '0'),
       bitrate: str(media.bitrate, '320'),
@@ -274,7 +332,7 @@ function toQueueTrack(t: any): QueueTrack | null {
     trackId: t.ratingKey != null ? `/library/metadata/${t.ratingKey}` : '',
     albumId: albumRk ? `/library/metadata/${albumRk}/children` : '',
     title: str(t.title),
-    artist: str(t.grandparentTitle),
+    artist: trackArtist(t),
     album: str(t.parentTitle),
     durationMs: str(t.duration, '0'),
     bitrate: str(media.bitrate, '320'),
@@ -303,9 +361,12 @@ export async function buildAlbumQueue(album: PlexAlbum): Promise<QueueTrack[]> {
   }));
 }
 
-// Audio codec for a track, looked up from Plex (the WiiM API doesn't expose
-// it). `idOrPath` is the metaInfo trackId ("/library/metadata/123") or a bare
-// rating key. Returns a display label (FLAC/ALAC/MP3/…) or '' if unknown.
+// Per-track details Plex knows and the WiiM doesn't: the audio codec, and the
+// real artist on a compilation (the queue metadata the WiiM echoes back can
+// only be as good as whatever pushed it — a queue built before the
+// compilation fix, or pushed by another app, still says "Various Artists").
+// `idOrPath` is the metaInfo trackId ("/library/metadata/123") or a bare
+// rating key. Fields are '' when unknown. One request serves both.
 const CODEC_LABEL: Record<string, string> = {
   flac: 'FLAC',
   alac: 'ALAC',
@@ -323,22 +384,31 @@ const CODEC_LABEL: Record<string, string> = {
   pcm: 'PCM',
 };
 
-export async function getTrackCodec(idOrPath: string): Promise<string> {
+export interface PlexTrackInfo {
+  codec: string;
+  artist: string;
+}
+
+export async function getTrackInfo(idOrPath: string): Promise<PlexTrackInfo> {
+  const empty = {codec: '', artist: ''};
   if (!idOrPath) {
-    return '';
+    return empty;
   }
   const path = idOrPath.startsWith('/')
     ? idOrPath
     : `/library/metadata/${idOrPath}`;
   const mc = await plexGet(path);
   const t = (mc.Metadata || [])[0];
-  const codec = t?.Media?.[0]?.audioCodec;
-  if (!codec) {
-    return '';
+  if (!t) {
+    return empty;
   }
-  return (
-    CODEC_LABEL[String(codec).toLowerCase()] || String(codec).toUpperCase()
-  );
+  const codec = t.Media?.[0]?.audioCodec;
+  return {
+    codec: codec
+      ? CODEC_LABEL[String(codec).toLowerCase()] || String(codec).toUpperCase()
+      : '',
+    artist: trackArtist(t),
+  };
 }
 
 // --- "radio" stations (no Sonic Analysis) -----------------------------------

@@ -50,7 +50,25 @@ export interface QueueInfo {
 // Fixed name for the queue we push. The album name still shows in Now Playing
 // via each track's metadata; this is just the internal queue handle, so a
 // constant keeps PlayQueueWithIndex reliable regardless of album title chars.
+//
+// DELIBERATELY still "WiiMTV" after the rename to WyM TV. This string does not
+// belong to the app — it is the queue's ListName ON THE WiiM, and both station
+// auto-refill (appendQueue) and the Queue screen's jump-to-track (playIndex)
+// address the queue by it. Changing it would orphan whatever queue is playing
+// when the new build lands: the device would still be playing "WiiMTV" while
+// the app looked for the new name, and refill and jump-to-track would both
+// silently stop working until the next album or station push recreated it.
+// The user-visible label is queueDisplayName() below.
 const QUEUE_NAME = 'WiiMTV';
+
+// What to SHOW for a queue. Our own handle is an internal id, so display the
+// app's name for it; queues pushed by other apps keep whatever they call
+// themselves, which is the only clue about where they came from.
+export const QUEUE_DISPLAY_NAME = 'WyM TV';
+
+export function queueDisplayName(listName: string): string {
+  return listName === QUEUE_NAME ? QUEUE_DISPLAY_NAME : listName;
+}
 
 // XML escaping helpers. The WiiM PlayQueue format is double-encoded: each
 // track's DIDL-Lite <Metadata> is entity-encoded as a text node *inside* the

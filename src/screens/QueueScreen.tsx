@@ -10,7 +10,7 @@ import {
 } from 'react-native';
 import {useFocusEffect} from '@react-navigation/native';
 import {useDeviceStore} from '../store/deviceStore';
-import {WiiMClient, QueueItem} from '../api/wiim';
+import {WiiMClient, QueueItem, queueDisplayName} from '../api/wiim';
 
 // The Fire Stick window is 960x540 dp (1080p panel at density 320), so the
 // vertical budget here is small — see the note on paddingBottom below.
@@ -212,7 +212,7 @@ export default function QueueScreen({navigation}: any) {
       <View style={styles.header}>
         <Text style={styles.heading}>Queue</Text>
         <Text style={styles.sub} numberOfLines={1}>
-          {listName}
+          {queueDisplayName(listName)}
           {items.length ? `  ·  ${items.length} tracks` : ''}
         </Text>
       </View>

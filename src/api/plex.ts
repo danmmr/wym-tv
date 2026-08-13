@@ -32,28 +32,42 @@ export interface PlexTrack {
   url: string; // full streamable URL incl. token
 }
 
-const tokenQuery = `X-Plex-Token=${PLEX.token}`;
+// The token is OPTIONAL (see src/config/plex.ts). A Plex server that allows
+// unauthenticated access on the LAN serves metadata, artwork AND media parts
+// with no token at all — verified against this server, negative controls
+// included: a media part returns 206 with a real token and 206 with none, but
+// 503 with a WRONG one. So a stale token is the only way to break streaming,
+// which is exactly what broke on 2026-08-02. Empty means send nothing; set a
+// token only if the server actually requires one.
+const tokenQuery = PLEX.token ? `X-Plex-Token=${PLEX.token}` : '';
+
+// Append the token to a URL that already has a query string, or nothing at all
+// when no token is configured (a trailing "&" or "?" would be sent verbatim).
+function withToken(url: string, sep: '?' | '&'): string {
+  return tokenQuery ? `${url}${sep}${tokenQuery}` : url;
+}
 
 // Transcoded square cover art. size ~320 for grid thumbs, ~1000 for full art.
 export function artUrl(thumb: string, size = 1000): string {
   if (!thumb) {
     return '';
   }
-  return (
+  return withToken(
     `${PLEX.baseUrl}/photo/:/transcode?width=${size}&height=${size}` +
-    `&url=${encodeURIComponent(thumb)}&format=jpeg&${tokenQuery}`
+      `&url=${encodeURIComponent(thumb)}&format=jpeg`,
+    '&',
   );
 }
 
 export function streamUrl(partKey: string): string {
-  return `${PLEX.baseUrl}${partKey}?${tokenQuery}`;
+  return withToken(`${PLEX.baseUrl}${partKey}`, '?');
 }
 
 // GET a Plex path and return its MediaContainer. Force JSON explicitly so a
 // future axios default change can't silently flip us back to XML.
 async function plexGet(path: string): Promise<any> {
   const sep = path.indexOf('?') === -1 ? '?' : '&';
-  const url = `${PLEX.baseUrl}${path}${sep}${tokenQuery}`;
+  const url = withToken(`${PLEX.baseUrl}${path}`, sep);
   const res = await axios.get(url, {
     headers: {Accept: 'application/json'},
     timeout: 15000,

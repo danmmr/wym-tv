@@ -101,21 +101,30 @@ if [ -n "$SHADOWED" ]; then
   exit 1
 fi
 
-# --- Plex token ------------------------------------------------------------
-# The app is an APK on a Fire Stick, so unlike the Python tooling in a local helper script
-# (which reads ~/.config/plex/token at runtime via plex_creds.py) it has to bake
-# the token in at build time. Sync it from that same file here so a rotation is
-# still a one-file edit and can never leave the sticks holding a dead token.
-#
-# Why this matters: Plex keeps honouring a STALE token for metadata, so browsing,
-# artwork and track listings all look perfectly healthy — it refuses only media
-# parts, and answers 503 rather than 401. The WiiM fetches those stream URLs
+# --- Plex token (optional) -------------------------------------------------
+# The token is OPT-IN. This server allows unauthenticated access on the LAN, so
+# the app ships without one: verified with negative controls on 2026-08-13, a
+# media part returns 206 with a real token and 206 with none, but 503 with a
+# WRONG one. Carrying a token is therefore pure downside — Plex keeps honouring
+# a STALE one for metadata, so browsing and artwork look perfectly healthy while
+# media parts answer 503 rather than 401. The WiiM fetches those stream URLs
 # itself, treats each 503 as a dead track and advances, so a whole album rips
 # past in seconds. That is what broke on 2026-08-02.
+#
+# To opt in, uncomment the token line in src/config/plex.ts. An APK on a Fire
+# Stick cannot read ~/.config/plex/token at runtime the way the Python tooling
+# in a local helper script does, so it gets baked in here at build time — and only then.
 TOKEN_FILE="$HOME/.config/plex/token"
 CFG="src/config/plex.ts"
 
-if [ -f "$TOKEN_FILE" ]; then
+# An active token line is uncommented; a commented one means "no token wanted"
+# and must NOT be resurrected from the token file.
+TOKEN_ACTIVE=0
+grep -qE "^[[:space:]]*token:[[:space:]]*'" "$CFG" && TOKEN_ACTIVE=1
+
+if [ "$TOKEN_ACTIVE" -eq 0 ]; then
+  echo "==> Plex token not in use (commented out in $CFG) — requests go unauthenticated"
+elif [ -f "$TOKEN_FILE" ]; then
   FILE_TOKEN=$(tr -d '[:space:]' < "$TOKEN_FILE")
   CFG_TOKEN=$(sed -n "s/^[[:space:]]*token:[[:space:]]*'\([^']*\)'.*/\1/p" "$CFG" | head -1)
   if [ -z "$FILE_TOKEN" ]; then
@@ -148,9 +157,11 @@ if [ "$RUN_CHECKS" -eq 1 ]; then
   echo "==> Running tests..."
   npx jest --silent
 
-  # Verify the token can actually STREAM, not just browse. A range request
-  # against a real media part is the only check that tells those apart:
+  # Verify the app's Plex config can actually STREAM, not just browse. A range
+  # request against a real media part is the only check that tells those apart:
   # a stale token returns 503 here while /library/sections still returns 200.
+  # This runs whether or not a token is configured — "no token" is a claim about
+  # the server that deserves testing exactly as much as a token does.
   echo "==> Checking Plex streaming..."
   # The address comes from hosts.data.json (same value the app builds), the token
   # from plex.ts. A plex.ts left over from before the addresses moved out would
@@ -164,10 +175,29 @@ if [ "$RUN_CHECKS" -eq 1 ]; then
     exit 1
   fi
   P_TOK=$(sed -n "s/^[[:space:]]*token:[[:space:]]*'\([^']*\)'.*/\1/p" "$CFG" | head -1)
-  P_SEC=$(sed -n "s/^[[:space:]]*musicSection:[[:space:]]*\([0-9]*\).*/\1/p" "$CFG" | head -1)
+  # Require at least one DIGIT. `[0-9]*` also matches zero digits, so it happily
+  # captured "" from the `musicSection: number;` line of the type annotation and
+  # left this check requesting /library/sections//all — which fails in a way that
+  # only warns, i.e. a check that could no longer catch anything.
+  P_SEC=$(sed -n "s/^[[:space:]]*musicSection:[[:space:]]*\([0-9][0-9]*\).*/\1/p" "$CFG" | head -1)
+  if [ -z "$P_SEC" ]; then
+    echo "    could not read musicSection out of $CFG — the streaming check cannot run." >&2
+    exit 1
+  fi
+
+  # Send NO token parameter when none is configured. An empty X-Plex-Token= is
+  # not the same request as omitting it — an empty value can read as a wrong
+  # token, which is the one case Plex answers 503 to.
+  if [ -n "$P_TOK" ]; then
+    TOK_Q="&X-Plex-Token=$P_TOK"
+    TOK_Q1="?X-Plex-Token=$P_TOK"
+  else
+    TOK_Q=""
+    TOK_Q1=""
+  fi
 
   PART=$(curl -s --max-time 20 -H 'Accept: application/json' \
-    "$P_BASE/library/sections/$P_SEC/all?type=10&sort=random&X-Plex-Container-Size=1&X-Plex-Token=$P_TOK" \
+    "$P_BASE/library/sections/$P_SEC/all?type=10&sort=random&X-Plex-Container-Size=1$TOK_Q" \
     | python3 -c 'import sys,json
 try:
     print(json.load(sys.stdin)["MediaContainer"]["Metadata"][0]["Media"][0]["Part"][0]["key"])
@@ -177,20 +207,35 @@ except Exception:
   if [ -z "$PART" ]; then
     # Could not even list a track: server down, or unreachable from this Mac.
     # Not necessarily a bad token, so warn rather than block the build.
-    echo "    WARNING: could not reach Plex at $P_BASE to verify the token" >&2
+    echo "    WARNING: could not reach Plex at $P_BASE to verify streaming" >&2
   else
     CODE=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 -r 0-1023 \
-      "$P_BASE$PART?X-Plex-Token=$P_TOK" || echo 000)
+      "$P_BASE$PART$TOK_Q1" || echo 000)
     case "$CODE" in
       200|206)
-        echo "    streaming OK (HTTP $CODE)" ;;
+        if [ -n "$P_TOK" ]; then
+          echo "    streaming OK (HTTP $CODE, with token)"
+        else
+          echo "    streaming OK (HTTP $CODE, no token needed)"
+        fi ;;
       401|403)
-        echo "    Plex rejected the token (HTTP $CODE). Update $TOKEN_FILE." >&2
+        if [ -n "$P_TOK" ]; then
+          echo "    Plex rejected the token (HTTP $CODE). Update $TOKEN_FILE." >&2
+        else
+          echo "    Plex requires authentication (HTTP $CODE) but no token is configured." >&2
+          echo "    Uncomment the token line in $CFG — see src/config/plex.example.ts." >&2
+        fi
         exit 1 ;;
       503)
-        echo "    Plex returns 503 on media parts — the token is stale (browsing still works)." >&2
-        echo "    Put the current token in $TOKEN_FILE and re-run; otherwise the sticks will" >&2
-        echo "    skip through every album in seconds." >&2
+        if [ -n "$P_TOK" ]; then
+          echo "    Plex returns 503 on media parts — the token is stale (browsing still works)." >&2
+          echo "    Put the current token in $TOKEN_FILE and re-run; otherwise the sticks will" >&2
+          echo "    skip through every album in seconds." >&2
+        else
+          echo "    Plex returns 503 on media parts with no token (browsing still works)." >&2
+          echo "    This server no longer allows unauthenticated local access. Uncomment the" >&2
+          echo "    token line in $CFG; otherwise the sticks will skip every album in seconds." >&2
+        fi
         exit 1 ;;
       *)
         echo "    WARNING: unexpected HTTP $CODE fetching a media part" >&2 ;;

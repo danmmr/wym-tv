@@ -7,7 +7,7 @@
 #   ./deploy.sh <stick-ip>      # a specific stick (repeatable)
 #   ./deploy.sh --no-check all  # skip typecheck + tests
 #
-# The sticks live in src/config/hosts.json, alongside every other LAN address.
+# The sticks live in src/config/hosts.data.json, alongside every other LAN address.
 # Find a stick's IP on the device: Settings > My Fire TV > About > Network.
 
 set -euo pipefail
@@ -27,14 +27,14 @@ ulimit -n 65536                                      # Metro file watcher needs 
 cd "$(dirname "$0")"
 
 # --- Hosts -----------------------------------------------------------------
-# Every LAN address lives in src/config/hosts.json — the same file the app
+# Every LAN address lives in src/config/hosts.data.json — the same file the app
 # imports (via src/config/hosts.ts). Read the stick list from there rather than
 # repeating it here, so moving a device is a one-file edit and the script can
 # never target a stick the app no longer knows about.
 #
 # PRIMARY is what a bare ./deploy.sh targets — deploy there first while
 # iterating, then `./deploy.sh all` once a change is settled.
-HOSTS="src/config/hosts.json"
+HOSTS="src/config/hosts.data.json"
 if [ ! -f "$HOSTS" ]; then
   echo "Missing $HOSTS — it holds the Fire Stick and Plex addresses." >&2
   exit 1
@@ -122,7 +122,7 @@ if [ "$RUN_CHECKS" -eq 1 ]; then
   # against a real media part is the only check that tells those apart:
   # a stale token returns 503 here while /library/sections still returns 200.
   echo "==> Checking Plex streaming..."
-  # The address comes from hosts.json (same value the app builds), the token
+  # The address comes from hosts.data.json (same value the app builds), the token
   # from plex.ts. A plex.ts left over from before the addresses moved out would
   # still carry its own literal baseUrl, and the app would then use a server
   # this check never looked at — so say so loudly rather than silently drift.

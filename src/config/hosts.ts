@@ -1,4 +1,4 @@
-// Every LAN address this project knows about lives in `hosts.json`, and this
+// Every LAN address this project knows about lives in `hosts.data.json`, and this
 // module is how the app reads it. Change an IP there and it changes everywhere:
 // the Plex server the app pulls from, the WiiM units the Discovery screen
 // offers, the subnets a scan sweeps, and (via deploy.sh, which parses the same
@@ -9,10 +9,10 @@
 // the script is exactly the drift this file exists to prevent. The commentary
 // that would otherwise sit next to each value lives here instead.
 //
-// hosts.json is TRACKED in git (unlike src/config/plex.ts, which is ignored
+// hosts.data.json is TRACKED in git (unlike src/config/plex.ts, which is ignored
 // because it holds an account token). Private LAN addresses are not secrets.
 import {WiiMDevice} from '../store/deviceStore';
-import hosts from './hosts.json';
+import hosts from './hosts.data.json';
 
 // Plex Media Server on the LAN.
 //

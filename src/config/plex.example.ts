@@ -2,7 +2,7 @@
 // gitignored because it holds an account token; this example is tracked.
 //
 // The SERVER ADDRESS is not here — it lives with every other LAN address in
-// `hosts.json` (see hosts.ts), which deploy.sh reads too. Only the secret and
+// `hosts.data.json` (see hosts.ts), which deploy.sh reads too. Only the secret and
 // the library id belong in this file.
 //
 // token:        X-Plex-Token for the account. Find it by opening any item in the

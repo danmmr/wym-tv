@@ -51,7 +51,7 @@ async function scanSubnet(
 }
 
 export class DeviceDiscovery {
-  // Common private /24 subnets, from src/config/hosts.json. Full 1-254 scan
+  // Common private /24 subnets, from src/config/hosts.data.json. Full 1-254 scan
   // of each.
   private candidateSubnets = SCAN_SUBNETS;
 

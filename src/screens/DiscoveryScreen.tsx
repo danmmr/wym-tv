@@ -17,7 +17,7 @@ import {WiiMDevice} from '../store/deviceStore';
 import {KNOWN_DEVICES, IP_INPUT_EXAMPLE} from '../config/hosts';
 
 export default function DiscoveryScreen({navigation}: any) {
-  // Seed with the devices from src/config/hosts.json so they appear instantly.
+  // Seed with the devices from src/config/hosts.data.json so they appear instantly.
   const [devices, setDevices] = useState<WiiMDevice[]>(KNOWN_DEVICES);
   const [loading, setLoading] = useState(false);
   const [manualIP, setManualIP] = useState('');

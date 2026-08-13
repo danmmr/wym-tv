@@ -1,5 +1,6 @@
 import axios from 'axios';
 import {WiiMDevice} from '../store/deviceStore';
+import {SCAN_SUBNETS} from '../config/hosts';
 
 // Fast, dedicated probe (short timeout — we're hitting up to 254 hosts).
 async function probeIP(ip: string): Promise<WiiMDevice | null> {
@@ -50,18 +51,9 @@ async function scanSubnet(
 }
 
 export class DeviceDiscovery {
-  // Common private /24 subnets. Full 1-254 scan of each.
-  private candidateSubnets = [
-    '192.168.2',
-    '192.168.1',
-    '192.168.0',
-    '192.168.10',
-    '192.168.50',
-    '10.0.0',
-    '10.0.1',
-    '10.1.1',
-    '172.16.0',
-  ];
+  // Common private /24 subnets, from src/config/hosts.json. Full 1-254 scan
+  // of each.
+  private candidateSubnets = SCAN_SUBNETS;
 
   // Probe a single known IP (used by manual "Add by IP").
   async probeOne(ip: string): Promise<WiiMDevice | null> {

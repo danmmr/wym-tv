@@ -4,17 +4,13 @@
 # Usage:
 #   ./deploy.sh                 # primary stick only (default while iterating)
 #   ./deploy.sh all             # every stick in STICKS
-#   ./deploy.sh 192.168.2.187   # a specific stick (repeatable)
+#   ./deploy.sh <stick-ip>      # a specific stick (repeatable)
 #   ./deploy.sh --no-check all  # skip typecheck + tests
 #
+# The sticks live in src/config/hosts.json, alongside every other LAN address.
 # Find a stick's IP on the device: Settings > My Fire TV > About > Network.
 
 set -euo pipefail
-
-# Known devices. PRIMARY is what a bare ./deploy.sh targets — deploy there
-# first while iterating, then `./deploy.sh all` once a change is settled.
-PRIMARY="192.168.2.186"
-STICKS=("192.168.2.186" "192.168.2.187")
 
 APP_ID="com.wiimtvapp"
 ACTIVITY="$APP_ID/.MainActivity"
@@ -29,6 +25,36 @@ export PATH="$ANDROID_SDK_ROOT/platform-tools:$PATH"
 ulimit -n 65536                                      # Metro file watcher needs headroom
 
 cd "$(dirname "$0")"
+
+# --- Hosts -----------------------------------------------------------------
+# Every LAN address lives in src/config/hosts.json — the same file the app
+# imports (via src/config/hosts.ts). Read the stick list from there rather than
+# repeating it here, so moving a device is a one-file edit and the script can
+# never target a stick the app no longer knows about.
+#
+# PRIMARY is what a bare ./deploy.sh targets — deploy there first while
+# iterating, then `./deploy.sh all` once a change is settled.
+HOSTS="src/config/hosts.json"
+if [ ! -f "$HOSTS" ]; then
+  echo "Missing $HOSTS — it holds the Fire Stick and Plex addresses." >&2
+  exit 1
+fi
+
+read_hosts() {  # read_hosts <python-expression over `h`>
+  python3 -c "import json,sys
+h = json.load(open('$HOSTS'))
+print($1)" 2>/dev/null
+}
+
+PRIMARY=$(read_hosts "h['fireSticks']['primary']")
+# shellcheck disable=SC2207
+STICKS=($(read_hosts "' '.join(h['fireSticks']['all'])"))
+PLEX_BASE=$(read_hosts "'http://%s:%d' % (h['plex']['host'], h['plex']['port'])")
+
+if [ -z "$PRIMARY" ] || [ ${#STICKS[@]} -eq 0 ] || [ -z "$PLEX_BASE" ]; then
+  echo "Could not read fireSticks/plex out of $HOSTS — is it valid JSON?" >&2
+  exit 1
+fi
 
 # --- Arguments -------------------------------------------------------------
 RUN_CHECKS=1
@@ -96,7 +122,17 @@ if [ "$RUN_CHECKS" -eq 1 ]; then
   # against a real media part is the only check that tells those apart:
   # a stale token returns 503 here while /library/sections still returns 200.
   echo "==> Checking Plex streaming..."
-  P_BASE=$(sed -n "s/^[[:space:]]*baseUrl:[[:space:]]*'\([^']*\)'.*/\1/p" "$CFG" | head -1)
+  # The address comes from hosts.json (same value the app builds), the token
+  # from plex.ts. A plex.ts left over from before the addresses moved out would
+  # still carry its own literal baseUrl, and the app would then use a server
+  # this check never looked at — so say so loudly rather than silently drift.
+  P_BASE="$PLEX_BASE"
+  if grep -qE "^[[:space:]]*baseUrl:[[:space:]]*'" "$CFG"; then
+    echo "    $CFG still hard-codes baseUrl. Replace that line with" >&2
+    echo "    'baseUrl: PLEX_BASE_URL,' (see src/config/plex.example.ts) so the" >&2
+    echo "    address comes from $HOSTS." >&2
+    exit 1
+  fi
   P_TOK=$(sed -n "s/^[[:space:]]*token:[[:space:]]*'\([^']*\)'.*/\1/p" "$CFG" | head -1)
   P_SEC=$(sed -n "s/^[[:space:]]*musicSection:[[:space:]]*\([0-9]*\).*/\1/p" "$CFG" | head -1)
 

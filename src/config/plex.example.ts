@@ -1,17 +1,19 @@
-// Copy this file to `plex.ts` and fill in your own server details. The real
-// `plex.ts` is gitignored because it holds an account token.
+// Copy this file to `plex.ts` and fill in your own token. The real `plex.ts` is
+// gitignored because it holds an account token; this example is tracked.
 //
-// baseUrl:      LAN address of the Plex Media Server. http:// is fine and is
-//               what we use — AndroidManifest sets android:usesCleartextTraffic
-//               ="true", which is required for both the album-art thumbnails and
-//               the stream URLs we hand to the WiiM.
+// The SERVER ADDRESS is not here — it lives with every other LAN address in
+// `hosts.json` (see hosts.ts), which deploy.sh reads too. Only the secret and
+// the library id belong in this file.
+//
 // token:        X-Plex-Token for the account. Find it by opening any item in the
 //               Plex web app, "Get Info" -> "View XML", and copying the
 //               X-Plex-Token query parameter off the resulting URL.
 // musicSection: numeric id of the music library. Visit
-//               <baseUrl>/library/sections?X-Plex-Token=<token> to list them.
+//               <PLEX_BASE_URL>/library/sections?X-Plex-Token=<token> to list them.
+import {PLEX_BASE_URL} from './hosts';
+
 export const PLEX = {
-  baseUrl: 'http://192.168.1.100:32400',
+  baseUrl: PLEX_BASE_URL,
   token: 'YOUR_PLEX_TOKEN_HERE',
   musicSection: 1,
 };

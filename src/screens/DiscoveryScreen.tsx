@@ -14,10 +14,10 @@ import {useFocusEffect} from '@react-navigation/native';
 import {useDeviceStore} from '../store/deviceStore';
 import {DeviceDiscovery} from '../api/discovery';
 import {WiiMDevice} from '../store/deviceStore';
-import {KNOWN_DEVICES} from '../config/knownDevices';
+import {KNOWN_DEVICES, IP_INPUT_EXAMPLE} from '../config/hosts';
 
 export default function DiscoveryScreen({navigation}: any) {
-  // Seed with the known/hardcoded devices so they appear instantly.
+  // Seed with the devices from src/config/hosts.json so they appear instantly.
   const [devices, setDevices] = useState<WiiMDevice[]>(KNOWN_DEVICES);
   const [loading, setLoading] = useState(false);
   const [manualIP, setManualIP] = useState('');
@@ -145,7 +145,7 @@ export default function DiscoveryScreen({navigation}: any) {
           style={styles.manualInput}
           value={manualIP}
           onChangeText={setManualIP}
-          placeholder="Enter WiiM IP (e.g. 192.168.2.50)"
+          placeholder={`Enter WiiM IP (e.g. ${IP_INPUT_EXAMPLE})`}
           placeholderTextColor="#666"
           keyboardType="numeric"
           autoCapitalize="none"

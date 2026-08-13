@@ -16,6 +16,12 @@ import {DeviceDiscovery} from '../api/discovery';
 import {WiiMDevice} from '../store/deviceStore';
 import {KNOWN_DEVICES, IP_INPUT_EXAMPLE} from '../config/hosts';
 
+// Cards are a fixed height so the scroll maths below are exact (same reason
+// QueueScreen uses a fixed ROW_H). Content is predictable: name, IP, model.
+const CARD_H = 116;
+const CARD_GAP = 10;
+const ROW_H = CARD_H + CARD_GAP;
+
 export default function DiscoveryScreen({navigation}: any) {
   // Seed with the devices from src/config/hosts.data.json so they appear instantly.
   const [devices, setDevices] = useState<WiiMDevice[]>(KNOWN_DEVICES);
@@ -31,6 +37,11 @@ export default function DiscoveryScreen({navigation}: any) {
   itemsRef.current = items;
   const focusIdxRef = useRef(0);
   const focusedId = items[Math.min(focusIdx, items.length - 1)];
+
+  // Scroll state for the device list (see the scroll-into-view effect below).
+  const listRef = useRef<FlatList<WiiMDevice>>(null);
+  const visibleCardsRef = useRef(1);
+  const listTopRef = useRef(0);
 
   // No auto-scan — the known devices are shown immediately. Use "Scan network"
   // to discover anything not in the hardcoded list.
@@ -95,6 +106,27 @@ export default function DiscoveryScreen({navigation}: any) {
     focusIdxRef.current = focusIdx;
   }, [focusIdx]);
 
+  // Keep the focused card on screen. Without this the list never scrolls, so
+  // any device past the second one sat under the Scan button, half-drawn.
+  // Step whole cards and only when focus leaves the window — re-centring on
+  // every keypress reads as jerk on this GPU (same lesson as BrowseScreen).
+  React.useEffect(() => {
+    if (focusIdx >= devices.length) {
+      return; // Scan button, not a card.
+    }
+    const visible = visibleCardsRef.current;
+    let top = listTopRef.current;
+    if (focusIdx < top) {
+      top = focusIdx;
+    } else if (focusIdx > top + visible - 1) {
+      top = focusIdx - visible + 1;
+    }
+    if (top !== listTopRef.current) {
+      listTopRef.current = top;
+      listRef.current?.scrollToOffset({offset: top * ROW_H, animated: true});
+    }
+  }, [focusIdx, devices.length]);
+
   // Own the D-pad while this screen is focused; render a visible focus cursor.
   useFocusEffect(
     useCallback(() => {
@@ -158,11 +190,24 @@ export default function DiscoveryScreen({navigation}: any) {
       {manualError ? <Text style={styles.errorText}>{manualError}</Text> : null}
 
       <FlatList
+        ref={listRef}
         data={devices}
         renderItem={renderDevice}
         keyExtractor={item => item.id}
         extraData={focusedId}
         style={styles.list}
+        showsVerticalScrollIndicator={false}
+        getItemLayout={(_, index) => ({
+          length: ROW_H,
+          offset: ROW_H * index,
+          index,
+        })}
+        onLayout={e => {
+          visibleCardsRef.current = Math.max(
+            1,
+            Math.floor(e.nativeEvent.layout.height / ROW_H),
+          );
+        }}
       />
 
       <TouchableOpacity
@@ -186,17 +231,20 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#1a1a1a',
-    // Fire TV overscan-safe insets (matches NowPlayingScreen): big bottom inset
-    // keeps the bottom Scan button clear of this TV's ~10%+ bottom crop.
+    // Fire TV overscan-safe insets. The window is 960x540 dp, so the old 140dp
+    // bottom inset was 26% of the height: it squeezed the device list to ~202dp
+    // (1.5 cards, slicing the second one) while leaving dead space below the
+    // Scan button. 96dp is still ~18%, well clear of this TV's ~10% crop, and
+    // with the trimmed top inset the list gets ~264dp - two full cards.
     paddingHorizontal: 48,
-    paddingTop: 30,
-    paddingBottom: 140,
+    paddingTop: 12,
+    paddingBottom: 96,
   },
   title: {
     fontSize: 32,
     fontWeight: 'bold',
     color: '#3b9eff',
-    marginBottom: 20,
+    marginBottom: 8,
   },
   manualRow: {
     flexDirection: 'row',
@@ -262,8 +310,11 @@ const styles = StyleSheet.create({
   deviceCard: {
     backgroundColor: '#2a2a2a',
     borderRadius: 8,
-    padding: 20,
-    marginBottom: 15,
+    // Fixed height (border-box) so getItemLayout and the scroll maths agree.
+    // 116 - 32 padding - 6 border leaves 78dp for the three text lines (~70dp).
+    height: CARD_H,
+    padding: 16,
+    marginBottom: CARD_GAP,
     borderLeftWidth: 4,
     borderLeftColor: '#3b9eff',
     borderWidth: 3,
@@ -277,7 +328,7 @@ const styles = StyleSheet.create({
     fontSize: 22,
     fontWeight: 'bold',
     color: '#3b9eff',
-    marginBottom: 8,
+    marginBottom: 4,
   },
   deviceInfo: {
     fontSize: 16,

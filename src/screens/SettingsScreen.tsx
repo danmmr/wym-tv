@@ -34,7 +34,7 @@ export default function SettingsScreen({navigation}: any) {
   };
 
   const handleRestart = () => {
-    Alert.alert('Restart App', 'Kill and relaunch WiiM TV?', [
+    Alert.alert('Restart App', 'Kill and relaunch WyM TV?', [
       {text: 'Cancel', style: 'cancel'},
       {
         text: 'Restart',
@@ -107,7 +107,7 @@ export default function SettingsScreen({navigation}: any) {
 
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>About</Text>
-        <Text style={styles.aboutText}>WiiM TV v0.0.1</Text>
+        <Text style={styles.aboutText}>WyM TV v0.0.1</Text>
         <Text style={styles.aboutText}>
           Remote control for WiiM audio devices
         </Text>

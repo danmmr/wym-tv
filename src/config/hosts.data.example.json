@@ -1,0 +1,31 @@
+{
+  "_comment": "Copy this file to hosts.data.json and put your own addresses in. Every LAN address this project uses lives here: the app reads it through hosts.ts, and deploy.sh parses the same file so the two can never disagree about which devices they mean. It is JSON rather than TypeScript precisely so a bash script can read it too.",
+
+  "plex": {
+    "_comment": "Plex Media Server. http:// is used on purpose — Plex's https listener presents a *.plex.direct cert that fails hostname verification against a bare IP.",
+    "host": "192.168.1.10",
+    "port": 32400
+  },
+
+  "wiimDevices": [
+    {
+      "_comment": "WiiM units with DHCP reservations. These appear on the Discovery screen instantly, without waiting for a scan. Give each one a static lease.",
+      "ip": "192.168.1.20",
+      "name": "WiiM Ultra",
+      "model": "WiiM_Ultra"
+    },
+    {"ip": "192.168.1.21", "name": "WiiM Mini", "model": "Muzo_Mini"}
+  ],
+
+  "fireSticks": {
+    "_comment": "Fire TV Sticks to install onto. 'primary' is what a bare ./deploy.sh targets — deploy there while iterating, then './deploy.sh all'. Find a stick's IP under Settings > My Fire TV > About > Network.",
+    "primary": "192.168.1.30",
+    "all": ["192.168.1.30", "192.168.1.31"]
+  },
+
+  "scanSubnets": [
+    "192.168.1",
+    "192.168.0",
+    "10.0.0"
+  ]
+}

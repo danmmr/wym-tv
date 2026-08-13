@@ -9,8 +9,10 @@
 // the script is exactly the drift this file exists to prevent. The commentary
 // that would otherwise sit next to each value lives here instead.
 //
-// hosts.data.json is TRACKED in git (unlike src/config/plex.ts, which is ignored
-// because it holds an account token). Private LAN addresses are not secrets.
+// hosts.data.json is GITIGNORED, like src/config/plex.ts. Private addresses are
+// not secrets, but they are this network's layout and are useless to anyone
+// else, so the tracked copy is hosts.data.example.json with placeholders. A
+// fresh clone copies the example; deploy.sh says so if the real file is absent.
 import {WiiMDevice} from '../store/deviceStore';
 import hosts from './hosts.data.json';
 

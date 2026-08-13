@@ -37,6 +37,9 @@ cd "$(dirname "$0")"
 HOSTS="src/config/hosts.data.json"
 if [ ! -f "$HOSTS" ]; then
   echo "Missing $HOSTS — it holds the Fire Stick and Plex addresses." >&2
+  echo "It is gitignored, so a fresh clone does not have one. Copy the example" >&2
+  echo "and put your own addresses in:" >&2
+  echo "    cp ${HOSTS%.json}.example.json $HOSTS" >&2
   exit 1
 fi
 

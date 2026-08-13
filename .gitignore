@@ -64,9 +64,14 @@ android/app/src/main/res/drawable-xhdpi/
 android/app/src/main/res/drawable-xxhdpi/
 android/app/src/main/res/drawable-xxxhdpi/
 
-# Holds the Plex server address and account token. Copy plex.example.ts to
-# plex.ts and fill in your own values.
+# May hold a Plex account token. Copy plex.example.ts to plex.ts and fill in
+# your own values (the token itself is optional — see that file).
 src/config/plex.ts
+
+# The real LAN map: Plex server, WiiM units, Fire Sticks, scan subnets. Private
+# addresses are not secrets, but they are this network's layout and they are of
+# no use to anyone else. Copy hosts.data.example.json to hosts.data.json.
+src/config/hosts.data.json
 
 # Ruby / CocoaPods
 /ios/Pods/

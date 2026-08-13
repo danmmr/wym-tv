@@ -71,6 +71,36 @@ if [ ${#TARGETS[@]} -eq 0 ]; then
   TARGETS=("$PRIMARY")
 fi
 
+# --- Module shadowing guard ------------------------------------------------
+# Metro resolves sourceExts in the order js, jsx, json, ts, tsx — every one of
+# those BEFORE TypeScript. So a foo.json (or foo.js) sitting next to foo.ts
+# makes `import {x} from './foo'` load the wrong file, and every export from
+# the .ts becomes undefined.
+#
+# What makes it vicious is that it is invisible here: JEST resolves ts FIRST,
+# so the whole suite stays green while the sticks run the shadowing file. On
+# 2026-08-13 src/config/hosts.json shadowed hosts.ts for three deploys — the
+# Discovery screen crashed only after a clean install, and the Plex half never
+# crashed at all, it just quietly dropped the codec from the Now Playing line.
+#
+# This runs even under --no-check: it costs nothing and it is a build
+# correctness problem, not a test.
+SHADOWED=""
+for candidate in $(find src -type f \( -name '*.json' -o -name '*.js' -o -name '*.jsx' \) 2>/dev/null); do
+  base="${candidate%.*}"
+  if [ -f "$base.ts" ] || [ -f "$base.tsx" ]; then
+    SHADOWED="$SHADOWED  $candidate shadows $base.ts"$'\n'
+  fi
+done
+if [ -n "$SHADOWED" ]; then
+  echo "==> Module shadowing detected:" >&2
+  printf '%s' "$SHADOWED" >&2
+  echo "    Metro loads these BEFORE the .ts, so its exports would be undefined" >&2
+  echo "    on device while the tests here stay green. Rename the data file with" >&2
+  echo "    a distinct stem (hosts.data.json is the existing example)." >&2
+  exit 1
+fi
+
 # --- Plex token ------------------------------------------------------------
 # The app is an APK on a Fire Stick, so unlike the Python tooling in a local helper script
 # (which reads ~/.config/plex/token at runtime via plex_creds.py) it has to bake

@@ -422,10 +422,24 @@ const CODEC_LABEL: Record<string, string> = {
 export interface PlexTrackInfo {
   codec: string;
   artist: string;
+  // The album this track belongs to. Free: the same request that carries the
+  // codec already carries the parent album, so Now Playing's "Album" button
+  // costs no extra Plex call. All '' when Plex doesn't say.
+  albumKey: string; // parentRatingKey — the album's rating key
+  albumTitle: string; // parentTitle
+  albumArtist: string; // grandparentTitle — see the note below
+  albumThumb: string; // parentThumb — RAW path; artUrl() builds the transcode
 }
 
 export async function getTrackInfo(idOrPath: string): Promise<PlexTrackInfo> {
-  const empty = {codec: '', artist: ''};
+  const empty = {
+    codec: '',
+    artist: '',
+    albumKey: '',
+    albumTitle: '',
+    albumArtist: '',
+    albumThumb: '',
+  };
   if (!idOrPath) {
     return empty;
   }
@@ -438,11 +452,19 @@ export async function getTrackInfo(idOrPath: string): Promise<PlexTrackInfo> {
     return empty;
   }
   const codec = t.Media?.[0]?.audioCodec;
+  const albumKey = str(t.parentRatingKey);
   return {
     codec: codec
       ? CODEC_LABEL[String(codec).toLowerCase()] || String(codec).toUpperCase()
       : '',
     artist: trackArtist(t),
+    albumKey,
+    albumTitle: albumKey ? str(t.parentTitle) : '',
+    // Deliberately grandparentTitle and NOT trackArtist(t): on a compilation
+    // trackArtist returns the per-track credit, which is the right label for
+    // the TRACK and the wrong one for the album as a whole.
+    albumArtist: albumKey ? str(t.grandparentTitle) : '',
+    albumThumb: albumKey ? str(t.parentThumb) : '',
   };
 }
 

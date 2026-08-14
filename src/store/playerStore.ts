@@ -27,6 +27,12 @@ export interface PlayerState {
   // compilation). Undefined until Plex answers, and whenever the track has no
   // Plex id — the UI falls back to `artist`.
   trackArtist?: string;
+  // The Plex album the current track belongs to, so Now Playing's "Album"
+  // button can play it. Resolved from the same per-track Plex request that
+  // supplies `codec`/`trackArtist`, and cleared on every track change.
+  // Undefined whenever the track has no Plex id (line-in, a non-Plex stream) —
+  // the button reports that rather than acting.
+  albumRef?: {key: string; title: string; artist: string; thumb: string};
   // Accent color derived from the current cover art (adaptive theming). Undefined
   // until the art resolves; the UI falls back to the default blue when unset.
   accent?: string; // hex, e.g. "#3b9eff"

@@ -18,7 +18,7 @@ const ROWS: string[][] = [
   ['vdown', 'vup'],
   ['lucky', 'queue'],
   ['libradio', 'deepcuts'],
-  ['recent'],
+  ['recent', 'album'],
   ['browse', 'settings', 'saver'],
 ];
 import {useDeviceStore} from '../store/deviceStore';
@@ -249,9 +249,11 @@ export default function NowPlayingScreen({navigation}: any) {
     codecTrackRef.current = trackId;
     // Clear stale values so the previous track's codec/artist never shows
     // against the new one (artist falls back to the WiiM's own value).
-    usePlayerStore
-      .getState()
-      .setPlayerState({codec: undefined, trackArtist: undefined});
+    usePlayerStore.getState().setPlayerState({
+      codec: undefined,
+      trackArtist: undefined,
+      albumRef: undefined,
+    });
     getTrackInfo(trackId)
       .then(info => {
         // Ignore if the track changed again while we were fetching.
@@ -261,6 +263,14 @@ export default function NowPlayingScreen({navigation}: any) {
         usePlayerStore.getState().setPlayerState({
           codec: info.codec || undefined,
           trackArtist: info.artist || undefined,
+          albumRef: info.albumKey
+            ? {
+                key: info.albumKey,
+                title: info.albumTitle,
+                artist: info.albumArtist,
+                thumb: info.albumThumb,
+              }
+            : undefined,
         });
       })
       .catch(() => {});
@@ -392,6 +402,50 @@ export default function NowPlayingScreen({navigation}: any) {
     }
   };
 
+  // Play the album the current track came from, from track 1. The album is
+  // resolved by the per-track Plex lookup (see maybeFetchTrackInfo), so this
+  // works for a track reached any way — station, playlist, lucky — not just
+  // one played from Browse. Read albumRef from the STORE, never from render
+  // scope: the WiiMNavKey listener is registered once, so a render-scope read
+  // would be pinned to first-render values forever.
+  const handlePlayAlbum = async () => {
+    const c = clientRef.current;
+    if (!c) {
+      setLastAction('No device connected');
+      return;
+    }
+    resetInactivityTimer();
+    const ref = usePlayerStore.getState().albumRef;
+    if (!ref?.key) {
+      setLastAction('No album for this track');
+      return;
+    }
+    // A finite album supersedes any active station — stop auto-refilling, or
+    // the refill would append over this album's tail (shared queue name).
+    usePlayerStore.getState().setPlayerState({stationKind: null});
+    setLastAction(`💿 Loading ${ref.title}…`);
+    try {
+      const queue = await buildAlbumQueue({
+        ratingKey: ref.key,
+        title: ref.title,
+        artist: ref.artist,
+        // buildAlbumQueue reads only ratingKey and thumb; the rest is display.
+        artistKey: '',
+        thumb: ref.thumb,
+        year: '',
+      });
+      if (!queue.length) {
+        setLastAction(`No tracks in "${ref.title}"`);
+        return;
+      }
+      await c.playAlbumQueue(queue, 0);
+      setLastAction(`💿 ${ref.title} — ${ref.artist}`);
+      pollStatus();
+    } catch (e: any) {
+      setLastAction(`Album ✗ ${e?.message || 'error'}`);
+    }
+  };
+
   // Start a "radio" station: build a finite queue of station tracks and push
   // it to the WiiM. Library = random across library; Deep Cuts = never-played.
   const handleStation = async (kind: StationKind, label: string) => {
@@ -466,6 +520,9 @@ export default function NowPlayingScreen({navigation}: any) {
       case 'recent':
         // Jump straight to Browse's Recent tab to pick a recently added album.
         navigation.navigate('Browse', {initialTab: 'recent'});
+        break;
+      case 'album':
+        handlePlayAlbum();
         break;
       case 'browse':
         navigation.navigate('Browse');
@@ -781,6 +838,13 @@ export default function NowPlayingScreen({navigation}: any) {
             focusedKey === 'recent' && styles.luckyButtonFocused,
           ]}>
           <Text style={styles.luckyText}>Recently Added</Text>
+        </View>
+        <View
+          style={[
+            styles.luckyButton,
+            focusedKey === 'album' && styles.luckyButtonFocused,
+          ]}>
+          <Text style={styles.luckyText}>💿 Album</Text>
         </View>
       </View>
 

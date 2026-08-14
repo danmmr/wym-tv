@@ -115,8 +115,8 @@ fi
 # past in seconds. That is what broke on 2026-08-02.
 #
 # To opt in, uncomment the token line in src/config/plex.ts. An APK on a Fire
-# Stick cannot read ~/.config/plex/token at runtime the way the Python tooling
-# in a local helper script does, so it gets baked in here at build time — and only then.
+# Stick cannot read ~/.config/plex/token at runtime, so it gets baked into the
+# build here — and only then.
 TOKEN_FILE="$HOME/.config/plex/token"
 CFG="src/config/plex.ts"
 

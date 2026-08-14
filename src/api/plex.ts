@@ -1,4 +1,5 @@
 import axios from 'axios';
+import {randomOrderEnabled} from '../config/display';
 import {PLEX} from '../config/plex';
 import type {QueueTrack} from './wiim';
 
@@ -146,10 +147,29 @@ function mulberry32(seed: number): () => number {
 // How many albums the Albums grid shows. A sample, not the catalog.
 export const ALBUM_SAMPLE = 500;
 
-// A bounded random sample of the library for the Albums grid. Plex's own
-// sort=random does the sampling server-side, so this is ONE request instead of
-// paging the whole catalog (~4.5k albums = 6 sequential round trips), and holds
-// a fraction of the objects — which matters on a 1.7 GB stick.
+// Fisher-Yates over a copy, seeded from the session's own entropy. Shared by
+// the album sample and the artist roster so both shuffle identically.
+function shuffled<T>(items: T[]): T[] {
+  const rng = mulberry32((Math.random() * 0xffffffff) >>> 0);
+  const arr = items.slice();
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1));
+    const tmp = arr[i];
+    arr[i] = arr[j];
+    arr[j] = tmp;
+  }
+  return arr;
+}
+
+const byName = (x: string, y: string): number =>
+  x.localeCompare(y, undefined, {sensitivity: 'base'});
+
+// A bounded sample of the library for the Albums grid. With RANDOM_ORDER = 1
+// (the default) Plex's own sort=random does the sampling server-side, so this
+// is ONE request instead of paging the whole catalog (~4.5k albums = 6
+// sequential round trips), and holds a fraction of the objects — which matters
+// on a 1.7 GB stick. With RANDOM_ORDER = 0 the same single request is made
+// against sort=titleSort, giving the first `count` albums alphabetically.
 //
 // Cached for the session so navigating in and out of the grid keeps the same
 // layout, exactly as the previous full-catalog shuffle did.
@@ -166,20 +186,16 @@ export async function getAlbumSample(
   // If the full catalog already happens to be in memory (Artists or Search was
   // opened first), sample from it rather than making another round trip.
   if (albumCache && albumCache.length) {
-    const seeded = mulberry32((Math.random() * 0xffffffff) >>> 0);
-    const arr = albumCache.slice();
-    for (let i = arr.length - 1; i > 0; i--) {
-      const j = Math.floor(seeded() * (i + 1));
-      const tmp = arr[i];
-      arr[i] = arr[j];
-      arr[j] = tmp;
-    }
-    sampleCache = arr.slice(0, count);
+    const ordered = randomOrderEnabled()
+      ? shuffled(albumCache)
+      : albumCache.slice().sort((a, b) => byName(a.title, b.title));
+    sampleCache = ordered.slice(0, count);
     return sampleCache;
   }
   const mc = await plexGet(
     `/library/sections/${PLEX.musicSection}/all` +
-      '?type=9&excludeFields=summary&sort=random' +
+      '?type=9&excludeFields=summary' +
+      `&sort=${randomOrderEnabled() ? 'random' : 'titleSort'}` +
       `&X-Plex-Container-Start=0&X-Plex-Container-Size=${count}`,
   );
   const out: PlexAlbum[] = [];
@@ -200,8 +216,9 @@ export async function getAlbumSample(
   return out;
 }
 
-// Re-randomise on demand (kept for a future "reshuffle" affordance). Drops the
-// album sample too, so a reshuffle draws a fresh 500 from the library.
+// Drop the cached orderings so the next Browse open recomputes them (kept for a
+// future "reshuffle" affordance). With RANDOM_ORDER = 1 that redraws a fresh
+// 500 from the library; with 0 it rebuilds the same alphabetical list.
 export function reshuffle(): void {
   sampleCache = null;
   shuffledArtistsCache = null;
@@ -241,33 +258,37 @@ export async function getArtists(
       });
     }
   }
-  artistsCache = Array.from(map.values()).sort((x, y) =>
-    x.name.localeCompare(y.name, undefined, {sensitivity: 'base'}),
-  );
+  artistsCache = Array.from(map.values()).sort((x, y) => byName(x.name, y.name));
   return artistsCache;
 }
 
-// All artists in a random-but-stable order (mirrors getAlbumSample), so the
-// Artists tab surfaces the whole roster shuffled instead of alphabetised. The
-// shuffle is computed once per session and cached, so navigating in and out of
-// the tab keeps the same order — and typed searches filter this shuffled list.
+// How many artists the Artists grid shows. A sample, not the whole roster —
+// same bound and same reasoning as ALBUM_SAMPLE.
+export const ARTIST_SAMPLE = 500;
+
+// The roster the Artists tab displays (mirrors getAlbumSample): at most
+// ARTIST_SAMPLE artists. With RANDOM_ORDER = 1 that is a random draw from the
+// full roster in a random order; with 0 it is the first ARTIST_SAMPLE
+// alphabetically. Either way the result is computed once per session and
+// cached, so navigating in and out of the tab keeps the same grid.
+//
+// The cap is display-only. getArtists() still returns every artist, and the
+// Search tab still searches the complete album catalog, so nothing becomes
+// unreachable — a capped-out artist is still found by searching their albums.
+//
+// Name kept as getShuffledArtists so the Browse call sites and their refs stay
+// put; "shuffled" is now the default case rather than the only one.
 export async function getShuffledArtists(
   onProgress?: (loaded: number, total: number) => void,
+  count = ARTIST_SAMPLE,
 ): Promise<PlexArtist[]> {
   if (shuffledArtistsCache) {
     return shuffledArtistsCache;
   }
   const artists = await getArtists(onProgress);
-  const seed = (Math.random() * 0xffffffff) >>> 0;
-  const rng = mulberry32(seed);
-  const arr = artists.slice();
-  for (let i = arr.length - 1; i > 0; i--) {
-    const j = Math.floor(rng() * (i + 1));
-    const tmp = arr[i];
-    arr[i] = arr[j];
-    arr[j] = tmp;
-  }
-  shuffledArtistsCache = arr;
+  // slice() on the ordered path too, so this cache never aliases artistsCache.
+  const ordered = randomOrderEnabled() ? shuffled(artists) : artists.slice();
+  shuffledArtistsCache = ordered.slice(0, count);
   return shuffledArtistsCache;
 }
 

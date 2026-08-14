@@ -9,6 +9,36 @@
 // They live here as pure functions so they can be unit tested — on-device the
 // only way to check them is to drive the remote and look at a TV.
 
+import {inputsEnabled, presetsEnabled} from '../config/display';
+
+// --- tab bar ---------------------------------------------------------------
+
+// Every tab BrowseScreen can render, in bar order. The two WiiM device tabs at
+// the end are optional (SHOW_PRESETS / SHOW_INPUTS in config/display.ts); the
+// five library tabs are always present.
+export const ALL_TABS = [
+  'artists',
+  'albums',
+  'recent',
+  'playlists',
+  'search',
+  'presets',
+  'inputs',
+];
+
+// The tabs actually offered, in bar order. Filtering the list rather than
+// hiding entries at render time is what keeps left/right tab navigation
+// correct: the D-pad walks the array by index, so a hidden-but-present entry
+// would read as a dead stop in the bar.
+export function visibleTabs(showPresets: boolean, showInputs: boolean): string[] {
+  return ALL_TABS.filter(t =>
+    t === 'presets' ? showPresets : t === 'inputs' ? showInputs : true,
+  );
+}
+
+// Resolved once from config, which is static for a build.
+export const TABS = visibleTabs(presetsEnabled(), inputsEnabled());
+
 export type KeyCell = {l: string; v: string; act?: 'space' | 'del' | 'clear'};
 
 export type KeyPos = {row: number; col: number};

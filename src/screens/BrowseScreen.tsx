@@ -30,7 +30,8 @@ import {
   PlexPlaylist,
 } from '../api/plex';
 import {usePlayerStore} from '../store/playerStore';
-import {navKeyboard, scrollTopFor, KeyCell} from './browseNav';
+import {inputsEnabled, presetsEnabled} from '../config/display';
+import {navKeyboard, scrollTopFor, KeyCell, TABS} from './browseNav';
 
 const {width: SCREEN_W, height: SCREEN_H} = Dimensions.get('window');
 const COLS = 5;
@@ -59,15 +60,8 @@ const RES_VISIBLE = Math.max(1, Math.floor(LIST_H / RESULT_H));
 // Playlist rows are the same pitch as artist results so they reuse RES_VISIBLE.
 const PLAYLIST_H = RESULT_H;
 
-const TABS = [
-  'artists',
-  'albums',
-  'recent',
-  'playlists',
-  'search',
-  'presets',
-  'inputs',
-];
+// TABS (which tabs are offered, in bar order) lives in browseNav.ts with the
+// rest of the pure navigation data, so it can be unit tested.
 const TAB_LABELS: Record<string, string> = {
   albums: 'Albums',
   recent: 'Recent',
@@ -171,7 +165,11 @@ export default function BrowseScreen({navigation, route}: any) {
   const selectedDevice = useDeviceStore(s => s.selectedDevice);
   // Optionally deep-linked to a specific tab (e.g. the Now Playing "Recently
   // Added" button opens Browse directly on the Recent tab).
-  const initialTab: string = route?.params?.initialTab || 'albums';
+  // A deep link naming a disabled tab falls back to Albums rather than landing
+  // on a tab the bar has no entry for (which would strand the tab cursor).
+  const requestedTab: string = route?.params?.initialTab || 'albums';
+  const initialTab: string =
+    TABS.indexOf(requestedTab) === -1 ? 'albums' : requestedTab;
   const [activeTab, setActiveTab] = useState(initialTab);
   const [presets, setPresets] = useState<any[]>([]);
   const [inputSources, setInputSources] = useState<any[]>([]);
@@ -384,15 +382,24 @@ export default function BrowseScreen({navigation, route}: any) {
     }
   };
 
+  // Populates the two WiiM device tabs. Each query is skipped when its tab is
+  // disabled, so a Browse open with both off costs the WiiM nothing at all.
   const loadData = async (wiimClient: WiiMClient) => {
+    if (!inputsEnabled() && !presetsEnabled()) {
+      return;
+    }
     try {
-      const info = await wiimClient.getDeviceInfo();
-      if (info.input) {
-        setInputSources(Array.isArray(info.input) ? info.input : []);
+      if (inputsEnabled()) {
+        const info = await wiimClient.getDeviceInfo();
+        if (info.input) {
+          setInputSources(Array.isArray(info.input) ? info.input : []);
+        }
       }
-      const presetInfo = await wiimClient.getPresetInfo();
-      if (presetInfo) {
-        setPresets(Array.isArray(presetInfo) ? presetInfo : []);
+      if (presetsEnabled()) {
+        const presetInfo = await wiimClient.getPresetInfo();
+        if (presetInfo) {
+          setPresets(Array.isArray(presetInfo) ? presetInfo : []);
+        }
       }
     } catch (error) {
       // non-fatal
@@ -403,7 +410,8 @@ export default function BrowseScreen({navigation, route}: any) {
     setAlbumsLoading(true);
     setStatusMsg('');
     try {
-      // A single sort=random request — the grid no longer waits on the catalog.
+      // A single sorted request — the grid no longer waits on the catalog.
+      // Order (random vs alphabetical) is RANDOM_ORDER in config/display.ts.
       const list = await getAlbumSample();
       setAlbums(list);
       if (!list.length) {

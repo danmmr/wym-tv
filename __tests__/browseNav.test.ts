@@ -1,4 +1,11 @@
-import {navKeyboard, scrollTopFor, KeyCell} from '../src/screens/browseNav';
+import {
+  navKeyboard,
+  scrollTopFor,
+  KeyCell,
+  visibleTabs,
+  ALL_TABS,
+  TABS,
+} from '../src/screens/browseNav';
 
 // Mirrors the real layout: four ragged letter rows then a 3-key action row.
 const letters = (s: string): KeyCell[] => s.split('').map(c => ({l: c, v: c}));
@@ -105,5 +112,52 @@ describe('scrollTopFor', () => {
     // Stepping twice with no cursor move must not drift the viewport.
     const once = scrollTopFor(20, 0, VISIBLE);
     expect(scrollTopFor(20, once, VISIBLE)).toBe(once);
+  });
+});
+
+// --- tab bar ---------------------------------------------------------------
+// SHOW_PRESETS / SHOW_INPUTS (config/display.ts) decide whether the two WiiM
+// device tabs appear at all. The list must stay CONTIGUOUS: the D-pad walks it
+// by index, so a hidden entry left in place would read as a dead stop in the
+// bar rather than as an absent tab.
+
+describe('visibleTabs', () => {
+  const LIBRARY = ['artists', 'albums', 'recent', 'playlists', 'search'];
+
+  it('keeps the five library tabs at every setting', () => {
+    for (const p of [false, true]) {
+      for (const i of [false, true]) {
+        expect(visibleTabs(p, i)).toEqual(expect.arrayContaining(LIBRARY));
+      }
+    }
+  });
+
+  it('drops both device tabs when both are off (this install)', () => {
+    expect(visibleTabs(false, false)).toEqual(LIBRARY);
+  });
+
+  it('shows each device tab only when its own flag is on', () => {
+    expect(visibleTabs(true, false)).toEqual([...LIBRARY, 'presets']);
+    expect(visibleTabs(false, true)).toEqual([...LIBRARY, 'inputs']);
+    expect(visibleTabs(true, true)).toEqual([...LIBRARY, 'presets', 'inputs']);
+  });
+
+  it('preserves bar order and never leaves a gap', () => {
+    for (const p of [false, true]) {
+      for (const i of [false, true]) {
+        const tabs = visibleTabs(p, i);
+        // Every visible tab is a real tab, in ALL_TABS order, no duplicates.
+        expect(new Set(tabs).size).toBe(tabs.length);
+        const positions = tabs.map(t => ALL_TABS.indexOf(t));
+        expect(positions).not.toContain(-1);
+        expect([...positions].sort((a, b) => a - b)).toEqual(positions);
+      }
+    }
+  });
+
+  it('TABS reflects the shipped config — presets and inputs are off', () => {
+    expect(TABS).toEqual(LIBRARY);
+    expect(TABS).not.toContain('presets');
+    expect(TABS).not.toContain('inputs');
   });
 });

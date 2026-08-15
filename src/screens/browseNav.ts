@@ -15,12 +15,13 @@ import {inputsEnabled, presetsEnabled} from '../config/display';
 
 // Every tab BrowseScreen can render, in bar order. The two WiiM device tabs at
 // the end are optional (SHOW_PRESETS / SHOW_INPUTS in config/display.ts); the
-// five library tabs are always present.
+// six library tabs are always present.
 export const ALL_TABS = [
   'artists',
   'albums',
   'recent',
   'playlists',
+  'collections',
   'search',
   'presets',
   'inputs',
@@ -30,7 +31,10 @@ export const ALL_TABS = [
 // hiding entries at render time is what keeps left/right tab navigation
 // correct: the D-pad walks the array by index, so a hidden-but-present entry
 // would read as a dead stop in the bar.
-export function visibleTabs(showPresets: boolean, showInputs: boolean): string[] {
+export function visibleTabs(
+  showPresets: boolean,
+  showInputs: boolean,
+): string[] {
   return ALL_TABS.filter(t =>
     t === 'presets' ? showPresets : t === 'inputs' ? showInputs : true,
   );

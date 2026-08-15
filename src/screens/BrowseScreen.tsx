@@ -24,10 +24,13 @@ import {
   getPlaylists,
   buildPlaylistQueue,
   PLAYLIST_MAX,
+  getCollections,
+  getCollectionAlbums,
   artUrl,
   PlexAlbum,
   PlexArtist,
   PlexPlaylist,
+  PlexCollection,
 } from '../api/plex';
 import {usePlayerStore} from '../store/playerStore';
 import {inputsEnabled, presetsEnabled} from '../config/display';
@@ -66,6 +69,7 @@ const TAB_LABELS: Record<string, string> = {
   albums: 'Albums',
   recent: 'Recent',
   playlists: 'Playlists',
+  collections: 'Collections',
   artists: 'Artists',
   search: 'Search',
   presets: 'Presets',
@@ -161,6 +165,41 @@ const ArtistCard = React.memo(function ArtistCard({
   );
 });
 
+// Memoised collection cell — same geometry again, so Collections reads as a
+// third grid of the same kind. The art is Plex's composite mosaic of the
+// collection's covers, which is why an empty collection has no thumb.
+const CollectionCard = React.memo(function CollectionCard({
+  collection,
+  focused,
+}: {
+  collection: PlexCollection;
+  focused: boolean;
+}) {
+  return (
+    <View style={[styles.card, focused && styles.cardFocused]}>
+      {collection.thumb ? (
+        <Image
+          source={{uri: artUrl(collection.thumb, 320)}}
+          style={styles.cardArt}
+        />
+      ) : (
+        <View style={[styles.cardArt, styles.cardArtPlaceholder]}>
+          <Text style={styles.cardArtPlaceholderText}>
+            {(collection.title || '?').charAt(0).toUpperCase()}
+          </Text>
+        </View>
+      )}
+      <Text style={styles.cardTitle} numberOfLines={1}>
+        {collection.smart ? '⚙ ' : ''}
+        {collection.title}
+      </Text>
+      <Text style={styles.cardArtist} numberOfLines={1}>
+        {collection.count} {collection.count === 1 ? 'album' : 'albums'}
+      </Text>
+    </View>
+  );
+});
+
 export default function BrowseScreen({navigation, route}: any) {
   const selectedDevice = useDeviceStore(s => s.selectedDevice);
   // Optionally deep-linked to a specific tab (e.g. the Now Playing "Recently
@@ -200,6 +239,18 @@ export default function BrowseScreen({navigation, route}: any) {
   const [playlists, setPlaylists] = useState<PlexPlaylist[]>([]);
   const [playlistsLoading, setPlaylistsLoading] = useState(true);
 
+  // Collections tab state: a grid of the library's album collections that
+  // drills into one collection's albums, mirroring the Artists tab.
+  const [collections, setCollections] = useState<PlexCollection[]>([]);
+  const [collectionsLoading, setCollectionsLoading] = useState(true);
+  const [collectionView, setCollectionView] = useState<'grid' | 'albums'>(
+    'grid',
+  );
+  const [collectionAlbums, setCollectionAlbums] = useState<PlexAlbum[]>([]);
+  const [collectionAlbumsLoading, setCollectionAlbumsLoading] = useState(false);
+  const [selectedCollection, setSelectedCollection] =
+    useState<PlexCollection | null>(null);
+
   // Artists tab state: a shuffled grid of all artists (allArtists) that drills
   // into one artist's releases (artistAlbums) on select.
   const [allArtists, setAllArtists] = useState<PlexArtist[]>([]);
@@ -224,6 +275,8 @@ export default function BrowseScreen({navigation, route}: any) {
   const recentListRef = useRef<FlatList<PlexAlbum>>(null);
   const artistListRef = useRef<FlatList<PlexAlbum>>(null);
   const rosterListRef = useRef<FlatList<PlexArtist>>(null);
+  const collectionListRef = useRef<FlatList<PlexCollection>>(null);
+  const collectionAlbumListRef = useRef<FlatList<PlexAlbum>>(null);
   const topRowRef = useRef(0); // first grid row currently scrolled into view
   const busyRef = useRef(false);
   // The D-pad listener is registered once and captures first-render closures,
@@ -243,6 +296,10 @@ export default function BrowseScreen({navigation, route}: any) {
   const presetsRef = useRef<any[]>([]);
   const inputsRef = useRef<any[]>([]);
   const artistViewRef = useRef<'grid' | 'albums'>('grid');
+  const collectionsRef = useRef<PlexCollection[]>([]);
+  const collectionViewRef = useRef<'grid' | 'albums'>('grid');
+  const collectionAlbumsRef = useRef<PlexAlbum[]>([]);
+  const collectionIdxRef = useRef(0); // grid cursor saved when drilling in
   const kbPosRef = useRef({row: 0, col: 0});
   const allArtistsRef = useRef<PlexArtist[]>([]);
   const rosterIdxRef = useRef(0); // roster cursor saved when drilling into an artist
@@ -283,6 +340,15 @@ export default function BrowseScreen({navigation, route}: any) {
   useEffect(() => {
     artistAlbumsRef.current = artistAlbums;
   }, [artistAlbums]);
+  useEffect(() => {
+    collectionsRef.current = collections;
+  }, [collections]);
+  useEffect(() => {
+    collectionViewRef.current = collectionView;
+  }, [collectionView]);
+  useEffect(() => {
+    collectionAlbumsRef.current = collectionAlbums;
+  }, [collectionAlbums]);
 
   // Mirror the shuffled artist roster into a ref for the once-registered D-pad
   // handler (which reads live values without waiting for a re-render).
@@ -349,6 +415,7 @@ export default function BrowseScreen({navigation, route}: any) {
     loadAlbums();
     loadRecent();
     loadPlaylists();
+    loadCollections();
     // Runs when the selected device changes. navigation is stable and listing it
     // would re-run the whole Plex load.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -366,6 +433,22 @@ export default function BrowseScreen({navigation, route}: any) {
       // non-fatal; the Playlists tab just shows its empty state
     } finally {
       setPlaylistsLoading(false);
+    }
+  };
+
+  // Like playlists: one small request, not cached, so collections edited on the
+  // server are current every time Browse opens. The albums INSIDE a collection
+  // are the expensive part, and those are fetched on drill-in (and cached).
+  const loadCollections = async () => {
+    setCollectionsLoading(true);
+    try {
+      const list = await getCollections();
+      setCollections(list);
+      collectionsRef.current = list;
+    } catch (e) {
+      // non-fatal; the Collections tab just shows its empty state
+    } finally {
+      setCollectionsLoading(false);
     }
   };
 
@@ -472,15 +555,21 @@ export default function BrowseScreen({navigation, route}: any) {
       ? listRef
       : tabRef.current === 'recent'
       ? recentListRef
+      : tabRef.current === 'collections'
+      ? collectionViewRef.current === 'albums'
+        ? collectionAlbumListRef
+        : collectionListRef
       : artistViewRef.current === 'albums'
       ? artistListRef
       : rosterListRef;
-  // The Artists tab is always a grid now (the roster, or one artist's releases),
-  // so both use the album-grid row-stepping scroll.
+  // The Artists and Collections tabs are always grids (the roster/collection
+  // list, or the albums under one of them), so both use the album-grid
+  // row-stepping scroll.
   const isAlbumGridActive = () =>
     tabRef.current === 'albums' ||
     tabRef.current === 'recent' ||
-    tabRef.current === 'artists';
+    tabRef.current === 'artists' ||
+    tabRef.current === 'collections';
 
   const moveTo = (i: number) => {
     setIndex(i);
@@ -632,6 +721,52 @@ export default function BrowseScreen({navigation, route}: any) {
     artistListRef.current?.scrollToOffset({offset: 0, animated: false});
   };
 
+  // Drill into a collection. Unlike openArtist (which slices the already-loaded
+  // catalog synchronously) this is a network fetch — the biggest collections
+  // here run past a thousand albums — so the grid switches immediately and the
+  // albums land under a spinner.
+  const openCollection = async (c: PlexCollection) => {
+    setSelectedCollection(c);
+    // Remember the grid cursor so backing out lands on the same collection.
+    collectionIdxRef.current = idxRef.current;
+    setCollectionAlbums([]);
+    collectionAlbumsRef.current = [];
+    setCollectionView('albums');
+    collectionViewRef.current = 'albums';
+    setIndex(0);
+    idxRef.current = 0;
+    topRowRef.current = 0;
+    collectionAlbumListRef.current?.scrollToOffset({
+      offset: 0,
+      animated: false,
+    });
+    setCollectionAlbumsLoading(true);
+    try {
+      const list = await getCollectionAlbums(c.ratingKey);
+      setCollectionAlbums(list);
+      collectionAlbumsRef.current = list;
+    } catch (e: any) {
+      setStatusMsg(`Could not load "${c.title}": ${e?.message || 'error'}`);
+    } finally {
+      setCollectionAlbumsLoading(false);
+    }
+  };
+
+  const backToCollections = () => {
+    setCollectionView('grid');
+    collectionViewRef.current = 'grid';
+    // Restore the grid cursor saved when we drilled into this collection.
+    const i = collectionIdxRef.current;
+    setIndex(i);
+    idxRef.current = i;
+    const top = scrollTopFor(Math.floor(i / COLS), 0, VISIBLE_ROWS);
+    topRowRef.current = top;
+    collectionListRef.current?.scrollToOffset({
+      offset: top * ROW_H,
+      animated: false,
+    });
+  };
+
   const backToRoster = () => {
     setArtistView('grid');
     artistViewRef.current = 'grid';
@@ -736,6 +871,56 @@ export default function BrowseScreen({navigation, route}: any) {
     } else if (k === 'select') {
       if (items[idx]) {
         handlePlayAlbum(items[idx]);
+      }
+    }
+  };
+
+  // Collections tab: a grid of collections that drills into one collection's
+  // albums. Same shape as onNavArtists — leaving the album grid from its top
+  // row or left edge returns to the collection grid.
+  const onNavCollections = (k: string) => {
+    const inAlbums = collectionViewRef.current === 'albums';
+    const items: any[] = inAlbums
+      ? collectionAlbumsRef.current
+      : collectionsRef.current;
+    const n = items.length;
+    const idx = idxRef.current;
+    const col = idx % COLS;
+    const row = Math.floor(idx / COLS);
+
+    if (k === 'left') {
+      if (col > 0) {
+        moveTo(idx - 1);
+      } else if (inAlbums) {
+        backToCollections();
+      } else {
+        setZone('tabs');
+      }
+    } else if (k === 'right') {
+      if (col < COLS - 1 && idx + 1 < n) {
+        moveTo(idx + 1);
+      }
+    } else if (k === 'up') {
+      if (row > 0) {
+        moveTo(idx - COLS);
+      } else if (inAlbums) {
+        backToCollections();
+      } else {
+        setZone('tabs');
+      }
+    } else if (k === 'down') {
+      if (idx + COLS < n) {
+        moveTo(idx + COLS);
+      } else {
+        setZone('back');
+      }
+    } else if (k === 'select') {
+      if (items[idx]) {
+        if (inAlbums) {
+          handlePlayAlbum(items[idx]);
+        } else {
+          openCollection(items[idx]);
+        }
       }
     }
   };
@@ -862,6 +1047,12 @@ export default function BrowseScreen({navigation, route}: any) {
         ? artistAlbumsRef.current[i] || null
         : null;
     }
+    if (t === 'collections') {
+      // Only the drilled-in view holds albums; the collection grid does not.
+      return collectionViewRef.current === 'albums'
+        ? collectionAlbumsRef.current[i] || null
+        : null;
+    }
     if (t === 'search') {
       return searchZoneRef.current === 'results'
         ? filteredSearchRef.current[searchResIdxRef.current] || null
@@ -898,6 +1089,15 @@ export default function BrowseScreen({navigation, route}: any) {
         // Always land the Artists tab back on its shuffled roster grid.
         setArtistView('grid');
         artistViewRef.current = 'grid';
+        // Same for Collections: re-enter on the collection grid, not inside
+        // whichever collection was open last.
+        setCollectionView('grid');
+        collectionViewRef.current = 'grid';
+        collectionIdxRef.current = 0;
+        collectionListRef.current?.scrollToOffset({
+          offset: 0,
+          animated: false,
+        });
         // Search tab always re-enters on the keyboard, results at the top.
         setSearchZone('keyboard');
         searchResIdxRef.current = 0;
@@ -934,6 +1134,10 @@ export default function BrowseScreen({navigation, route}: any) {
     // z === 'content'
     if (tabRef.current === 'artists') {
       onNavArtists(k);
+      return;
+    }
+    if (tabRef.current === 'collections') {
+      onNavCollections(k);
       return;
     }
     if (tabRef.current === 'search') {
@@ -1133,6 +1337,63 @@ export default function BrowseScreen({navigation, route}: any) {
     );
   };
 
+  const renderCollectionsTab = () => {
+    if (collectionView === 'albums') {
+      return (
+        <View style={styles.artistAlbumsWrap}>
+          <Text style={styles.artistHeader} numberOfLines={1}>
+            {selectedCollection?.title}
+            {collectionAlbumsLoading
+              ? ' · loading…'
+              : ` · ${collectionAlbums.length} ${
+                  collectionAlbums.length === 1 ? 'album' : 'albums'
+                }`}
+          </Text>
+          {collectionAlbumsLoading ? (
+            <View style={styles.loadingBox}>
+              <ActivityIndicator size="large" color="#3b9eff" />
+            </View>
+          ) : (
+            albumGrid(
+              collectionAlbums,
+              collectionAlbumListRef,
+              'collection-albums-grid',
+              zone === 'content' ? index : -1,
+            )
+          )}
+        </View>
+      );
+    }
+    return (
+      <FlatList
+        key="collections-grid"
+        ref={collectionListRef}
+        data={collections}
+        renderItem={({item, index: i}) => (
+          <CollectionCard
+            collection={item}
+            focused={zone === 'content' && index === i}
+          />
+        )}
+        keyExtractor={item => item.ratingKey}
+        extraData={zone === 'content' ? index : -1}
+        numColumns={COLS}
+        columnWrapperStyle={styles.row}
+        style={styles.list}
+        initialNumToRender={20}
+        windowSize={7}
+        getItemLayout={(_data, i) => ({
+          length: ROW_H,
+          offset: ROW_H * i,
+          index: i,
+        })}
+        ListEmptyComponent={
+          <Text style={styles.noResults}>No album collections on Plex.</Text>
+        }
+      />
+    );
+  };
+
   const renderSearchTab = () => (
     <View style={styles.searchWrap}>
       <View style={styles.queryBar}>
@@ -1286,6 +1547,15 @@ export default function BrowseScreen({navigation, route}: any) {
             <Text style={styles.loadingText}>No audio playlists on Plex.</Text>
           </View>
         )
+      ) : activeTab === 'collections' ? (
+        collectionsLoading ? (
+          <View style={styles.loadingBox}>
+            <ActivityIndicator size="large" color="#3b9eff" />
+            <Text style={styles.loadingText}>Loading collections…</Text>
+          </View>
+        ) : (
+          renderCollectionsTab()
+        )
       ) : activeTab === 'artists' ? (
         libraryLoading ? (
           <View style={styles.loadingBox}>
@@ -1341,10 +1611,13 @@ export default function BrowseScreen({navigation, route}: any) {
           artist rather than playing, and MENU does nothing there. */}
       {activeTab === 'artists' && artistView === 'grid' ? (
         <Text style={styles.menuHint}>OK: view artist</Text>
+      ) : activeTab === 'collections' && collectionView === 'grid' ? (
+        <Text style={styles.menuHint}>OK: view collection</Text>
       ) : activeTab === 'albums' ||
         activeTab === 'recent' ||
         activeTab === 'search' ||
-        (activeTab === 'artists' && artistView === 'albums') ? (
+        (activeTab === 'artists' && artistView === 'albums') ||
+        (activeTab === 'collections' && collectionView === 'albums') ? (
         <Text style={styles.menuHint}>
           OK: play album · ☰ Menu: track listing
         </Text>

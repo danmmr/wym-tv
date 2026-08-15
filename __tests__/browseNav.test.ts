@@ -122,9 +122,16 @@ describe('scrollTopFor', () => {
 // bar rather than as an absent tab.
 
 describe('visibleTabs', () => {
-  const LIBRARY = ['artists', 'albums', 'recent', 'playlists', 'search'];
+  const LIBRARY = [
+    'artists',
+    'albums',
+    'recent',
+    'playlists',
+    'collections',
+    'search',
+  ];
 
-  it('keeps the five library tabs at every setting', () => {
+  it('keeps the six library tabs at every setting', () => {
     for (const p of [false, true]) {
       for (const i of [false, true]) {
         expect(visibleTabs(p, i)).toEqual(expect.arrayContaining(LIBRARY));

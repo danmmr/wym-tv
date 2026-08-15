@@ -258,7 +258,9 @@ export async function getArtists(
       });
     }
   }
-  artistsCache = Array.from(map.values()).sort((x, y) => byName(x.name, y.name));
+  artistsCache = Array.from(map.values()).sort((x, y) =>
+    byName(x.name, y.name),
+  );
   return artistsCache;
 }
 
@@ -607,6 +609,103 @@ export async function buildPlaylistQueue(
     }
   }
   return queue;
+}
+
+// --- collections ------------------------------------------------------------
+
+export interface PlexCollection {
+  ratingKey: string;
+  title: string;
+  count: number; // childCount — number of albums
+  smart: boolean; // Plex "smart" (rule-based) vs a hand-built collection
+  thumb: string; // mosaic path, may be '' for an empty collection
+}
+
+// All ALBUM collections in the music section, alphabetical.
+//
+// Only subtype 'album' is kept: a music collection can in principle hold
+// artists, and those children are not PlexAlbums, so the album grid would
+// render blank cards for them. Not cached — collections are edited on the
+// server, and this is one small request.
+export async function getCollections(): Promise<PlexCollection[]> {
+  const mc = await plexGet(
+    `/library/sections/${PLEX.musicSection}/collections`,
+  );
+  const out: PlexCollection[] = [];
+  for (const c of mc.Metadata || []) {
+    if (c.ratingKey == null || str(c.subtype) !== 'album') {
+      continue;
+    }
+    out.push({
+      ratingKey: str(c.ratingKey),
+      title: str(c.title),
+      count: Number(c.childCount) || 0,
+      // Plex sends smart as "1"/"0" here, not a JSON boolean, so String('0')
+      // would be truthy — compare explicitly.
+      smart: str(c.smart) === '1',
+      // A collection's cover mosaic arrives as `thumb` — NOT `composite`, the
+      // field the /playlists endpoint uses for the same idea. Reading composite
+      // here left every card on its letter placeholder. Both are accepted so a
+      // server that sends the playlist-style field still shows art.
+      thumb: str(c.thumb) || str(c.composite),
+    });
+  }
+  out.sort((a, b) => a.title.localeCompare(b.title));
+  return out;
+}
+
+// Albums of one collection, in the server's stored order. Paged: the largest
+// here run to ~1.5k albums, well past one container.
+//
+// Cached per collection for the session — unlike the playlist list (one cheap
+// request), re-entering a big collection would otherwise re-page a thousand-plus
+// albums every time. Reopening Browse gets a fresh process, so server-side edits
+// still show up on the next app start.
+const collectionCache = new Map<string, PlexAlbum[]>();
+
+export async function getCollectionAlbums(
+  ratingKey: string,
+): Promise<PlexAlbum[]> {
+  const hit = collectionCache.get(ratingKey);
+  if (hit) {
+    return hit;
+  }
+
+  const all: PlexAlbum[] = [];
+  let start = 0;
+  let total = Infinity;
+
+  while (start < total) {
+    const mc = await plexGet(
+      `/library/collections/${ratingKey}/children` +
+        '?excludeFields=summary' +
+        `&X-Plex-Container-Start=${start}&X-Plex-Container-Size=${PAGE}`,
+    );
+    if (total === Infinity) {
+      total = mc.totalSize ?? mc.size ?? 0;
+    }
+    const items: any[] = mc.Metadata || [];
+    for (const d of items) {
+      if (d.ratingKey == null) {
+        continue;
+      }
+      all.push({
+        ratingKey: str(d.ratingKey),
+        title: str(d.title),
+        artist: str(d.parentTitle),
+        artistKey: str(d.parentRatingKey),
+        thumb: str(d.thumb),
+        year: str(d.year),
+      });
+    }
+    if (!items.length) {
+      break; // defensive: never loop forever on an unexpected empty page
+    }
+    start += items.length;
+  }
+
+  collectionCache.set(ratingKey, all);
+  return all;
 }
 
 // A batch of random albums, for the art-frame slideshow. Prefers the cached

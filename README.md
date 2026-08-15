@@ -116,11 +116,12 @@ A tab bar across the top, content below, and a Back item at the bottom. Left fro
 | **Albums** | Grid of album covers. OK plays the album from track 1. |
 | **Recent** | Most recently *added* albums, newest first, with a **Shuffle** button above the grid (Up from the top row) that plays a shuffled queue of recent tracks. Never cached, so a fresh import shows up immediately. |
 | **Playlists** | All audio playlists, alphabetical, with track counts and a `smart` marker. OK plays the playlist in its stored order. |
+| **Collections** | Grid of the library's album collections (composite cover, title, album count, `⚙` for a smart one). OK drills into that collection's albums, in the server's stored order. Left or Up from the album grid returns to the collections, on the same card you left from. |
 | **Search** | On-screen A-Z keyboard on the left (plus SPACE, DEL, CLEAR), matching albums on the right. Matches album title **or** artist, case-insensitive substring, across the entire catalog. Right from the keyboard crosses into the results; Left goes back. |
 | **Presets** | The WiiM's own six stored presets. Hidden by default. |
 | **Inputs** | The WiiM's physical/streaming input sources. Hidden by default. |
 
-Pressing **☰ Menu** on any focused album (Albums, Recent, an artist's releases, or a search result) opens the album's track listing instead of playing it. OK stays the one-keypress "just play this album" action.
+Pressing **☰ Menu** on any focused album (Albums, Recent, an artist's releases, a collection's albums, or a search result) opens the album's track listing instead of playing it. OK stays the one-keypress "just play this album" action.
 
 The Albums grid and the Artists roster are bounded **samples** of 500 items each, not the whole library. With random order on (the default) that is a fresh random draw per session; with it off it is the first 500 alphabetically. The cap is display-only: Search still covers the complete catalog, so nothing in the library is unreachable.
 
@@ -204,6 +205,10 @@ On the Recent tab, the Shuffle button pulls a wide pool of the most recently add
 
 Played in their stored order, capped at **200 tracks** per push. Smart playlists can be enormous, and the WiiM queue is finite; the status line says when a playlist was capped rather than silently truncating.
 
+### Collections
+
+The list of collections is re-read every time Browse opens (one small request), so a collection edited on the server is current. The albums *inside* one are fetched on drill-in and cached for the session: the biggest here run past a thousand albums across two pages, and re-entering shouldn't re-page them. Only `subtype=album` collections are listed — a music collection can hold artists instead, and those children are not albums the grid could play.
+
 ### Adaptive theming
 
 An accent colour is extracted from each cover using Android's Palette API and normalised so it always reads well on the near-black background. It tints the Now Playing chrome, the screensaver palette and the art frame glow. On any failure the UI falls back to its default blue.
@@ -267,7 +272,7 @@ Each setting is `0` (off) or `1` (on).
 | `SHOW_PRESETS` | `0` | Show the WiiM Presets tab in Browse. When off, the tab is absent and the WiiM is never queried for it. |
 | `SHOW_INPUTS` | `0` | Same, for the WiiM Inputs tab. |
 
-The five library tabs (Artists, Albums, Recent, Playlists, Search) are not configurable; hiding one would strand part of the library.
+The six library tabs (Artists, Albums, Recent, Playlists, Collections, Search) are not configurable; hiding one would strand part of the library.
 
 > Do not add a `display.json` next to `display.ts`. Metro resolves `.json` **before** `.ts`, so a same-named JSON file silently shadows the module in a release build while Jest (which resolves `.ts` first) stays green. `deploy.sh` has a guard that fails the build on this.
 
@@ -328,7 +333,7 @@ src/
   App.tsx              navigation stack; boots into NowPlaying when a device is remembered
   api/
     wiim.ts            LinkPlay HTTP API + PlayQueue SOAP; DIDL/QueueContext building
-    plex.ts            Plex music client: catalog, artists, playlists, stations, queue building
+    plex.ts            Plex music client: catalog, artists, playlists, collections, stations, queue building
     discovery.ts       subnet scanning and single-IP probing
     coverart.ts        MusicBrainz Cover Art Archive fallback
     hex.ts             decodes the WiiM's hex-encoded metadata strings

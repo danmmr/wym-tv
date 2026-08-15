@@ -19,6 +19,8 @@ cp src/config/plex.example.ts src/config/plex.ts                  # your Plex li
 
 Both config files are gitignored, and `deploy.sh` tells you if either is missing. See [Configuration](#configuration) for what goes in them.
 
+New here? **[QUICKSTART.md](QUICKSTART.md)** walks the whole path from clone to music on the TV. This README is the reference.
+
 ---
 
 ## Contents

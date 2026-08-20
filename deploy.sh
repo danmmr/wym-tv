@@ -16,15 +16,110 @@ APP_ID="com.wymtv"
 ACTIVITY="$APP_ID/.MainActivity"
 APK="android/app/build/outputs/apk/release/app-release.apk"
 
-# --- Toolchain (the versions that actually work together) ---
-export PATH="/opt/homebrew/opt/node@20/bin:$PATH"   # Node 20 (Node 25 breaks RN CLI)
-export JAVA_HOME="/opt/homebrew/opt/openjdk@17"      # Java 17 (Gradle 8.x needs it, not Java 26)
-export ANDROID_SDK_ROOT="$HOME/Library/Android/sdk"
-export ANDROID_HOME="$ANDROID_SDK_ROOT"
-export PATH="$ANDROID_SDK_ROOT/platform-tools:$PATH"
-ulimit -n 65536                                      # Metro file watcher needs headroom
+# --- Toolchain (the versions that actually work together) ------------------
+# Both constraints are version CEILINGS, not floors: the React Native 0.73 CLI
+# breaks on Node 21+, and Gradle 8.x wants Java 17, not whatever newer JDK is
+# installed. A developer machine usually has something newer on PATH — this one
+# has Node 25 and Java 26 — so the script cannot simply inherit the environment.
+#
+# The policy is therefore "a working version wins", not "the environment wins":
+# an inherited JAVA_HOME or node is used when its version is one this build
+# actually works with, and quietly replaced when it is not. Locations are then
+# searched: Homebrew (Apple Silicon, then Intel), the stock SDK paths for macOS
+# and Linux, and macOS's java_home locator. Anyone whose toolchain lives
+# somewhere else gets picked up by setting JAVA_HOME/ANDROID_SDK_ROOT to a
+# version that qualifies. Preflight reports whatever is left, once, with the
+# fix, rather than letting gradle fail three minutes into a build.
+
+# Version probes. Empty output means "could not tell", which never qualifies.
+node_major() { "$1" -p 'process.versions.node.split(".")[0]' 2>/dev/null || true; }
+java_major() {
+  "$1" -version 2>&1 \
+    | awk -F'"' '/version/ {split($2,v,"."); print (v[1]=="1" ? v[2] : v[1]); exit}'
+}
+node_ok() { local m; m=$(node_major "$1"); [ -n "$m" ] && [ "$m" -ge 18 ] && [ "$m" -lt 21 ]; }
+java_ok() { local m; m=$(java_major "$1"); [ -n "$m" ] && [ "$m" -eq 17 ]; }
+
+# Node 18-20: keep an inherited one only if it qualifies.
+if ! { command -v node >/dev/null 2>&1 && node_ok "$(command -v node)"; }; then
+  for NODE_DIR in /opt/homebrew/opt/node@20/bin /usr/local/opt/node@20/bin; do
+    if [ -x "$NODE_DIR/node" ] && node_ok "$NODE_DIR/node"; then
+      export PATH="$NODE_DIR:$PATH"
+      break
+    fi
+  done
+fi
+
+# Java 17: same rule.
+if [ -n "${JAVA_HOME:-}" ] && [ -x "$JAVA_HOME/bin/java" ] && java_ok "$JAVA_HOME/bin/java"; then
+  : # inherited JAVA_HOME already points at 17
+else
+  unset JAVA_HOME
+  for JDK in /opt/homebrew/opt/openjdk@17 /usr/local/opt/openjdk@17 \
+             /usr/lib/jvm/java-17-openjdk-amd64 /usr/lib/jvm/java-17-openjdk; do
+    if [ -x "$JDK/bin/java" ] && java_ok "$JDK/bin/java"; then
+      export JAVA_HOME="$JDK"
+      break
+    fi
+  done
+  if [ -z "${JAVA_HOME:-}" ] && [ -x /usr/libexec/java_home ]; then
+    JH=$(/usr/libexec/java_home -v 17 2>/dev/null || true)
+    [ -n "$JH" ] && export JAVA_HOME="$JH"
+  fi
+fi
+
+# Android SDK. ANDROID_HOME is the older name for it; honour whichever is set.
+if [ -z "${ANDROID_SDK_ROOT:-}" ]; then
+  if [ -n "${ANDROID_HOME:-}" ]; then
+    export ANDROID_SDK_ROOT="$ANDROID_HOME"
+  else
+    for SDK in "$HOME/Library/Android/sdk" "$HOME/Android/Sdk"; do
+      [ -d "$SDK" ] && export ANDROID_SDK_ROOT="$SDK" && break
+    done
+  fi
+fi
+if [ -n "${ANDROID_SDK_ROOT:-}" ]; then
+  export ANDROID_HOME="$ANDROID_SDK_ROOT"
+  export PATH="$ANDROID_SDK_ROOT/platform-tools:$PATH"
+fi
+
+# Metro's file watcher needs headroom. Not every system lets a shell raise it,
+# and the build survives a lower limit, so this is advisory.
+ulimit -n 65536 2>/dev/null || true
 
 cd "$(dirname "$0")"
+
+# --- Preflight -------------------------------------------------------------
+# Report everything missing at once, before the first slow step, with the fix
+# for each. A missing JDK used to surface as a gradle stack trace minutes in.
+MISSING=()
+
+if ! command -v node >/dev/null 2>&1; then
+  MISSING+=("node       not found — install Node 20 (nvm: 'nvm use', see .nvmrc)")
+elif ! node_ok "$(command -v node)"; then
+  MISSING+=("node       is v$(node_major "$(command -v node)") — the RN 0.73 CLI needs 18-20 (see .nvmrc)")
+fi
+
+if [ -z "${JAVA_HOME:-}" ] || [ ! -x "${JAVA_HOME:-}/bin/java" ]; then
+  MISSING+=("JAVA_HOME  no Java 17 found — 'brew install openjdk@17', or set JAVA_HOME")
+elif ! java_ok "$JAVA_HOME/bin/java"; then
+  MISSING+=("JAVA_HOME  points at Java $(java_major "$JAVA_HOME/bin/java") — Gradle 8.x needs 17")
+fi
+
+if [ -z "${ANDROID_SDK_ROOT:-}" ] || [ ! -d "$ANDROID_SDK_ROOT" ]; then
+  MISSING+=("ANDROID_SDK_ROOT  Android SDK not found — set it, or install the SDK")
+elif ! command -v adb >/dev/null 2>&1; then
+  MISSING+=("adb        not in \$ANDROID_SDK_ROOT/platform-tools — install platform-tools")
+fi
+
+if [ ${#MISSING[@]} -gt 0 ]; then
+  echo "Toolchain problems:" >&2
+  for M in "${MISSING[@]}"; do echo "  $M" >&2; done
+  echo >&2
+  echo "Set JAVA_HOME / ANDROID_SDK_ROOT, or put a Node 18-20 on PATH; this" >&2
+  echo "script only searches for them when what you have does not qualify." >&2
+  exit 1
+fi
 
 # --- Hosts -----------------------------------------------------------------
 # Every LAN address lives in src/config/hosts.data.json — the same file the app

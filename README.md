@@ -2,7 +2,7 @@
 
 A Fire TV remote and browser for WiiM audio devices, backed by a local Plex music library.
 
-WyM TV (package `com.wiimtvapp`, display name **WyM TV**) is a React Native 0.73 app built for the Amazon Fire TV Stick. It shows what a WiiM unit is playing, controls it, and lets you browse the Plex music library on a TV screen with the Fire TV remote. Playback itself never runs on the stick: the app pushes a native **play queue** into the WiiM over UPnP, and the WiiM streams the files straight from Plex. The app can be closed at any time and the music keeps going.
+WyM TV (package `com.wymtv`, display name **WyM TV**) is a React Native 0.73 app built for the Amazon Fire TV Stick. It shows what a WiiM unit is playing, controls it, and lets you browse the Plex music library on a TV screen with the Fire TV remote. Playback itself never runs on the stick: the app pushes a native **play queue** into the WiiM over UPnP, and the WiiM streams the files straight from Plex. The app can be closed at any time and the music keeps going.
 
 - Deploy: `./deploy.sh`
 - Requires: a WiiM/LinkPlay device, a Plex Media Server with a music library, and a Fire TV Stick with ADB debugging enabled, all on the same LAN.
@@ -314,7 +314,7 @@ Tests live in `__tests__/` and cover the pure, on-device-only-observable logic: 
 
 **Albums rip past in seconds, a few seconds per track.** The Plex media parts are answering 503. Almost always a stale token in `src/config/plex.ts`: metadata and artwork still work, so everything looks fine until playback. Comment the token out (if the server allows unauthenticated LAN access) or refresh it. `deploy.sh` catches this before building.
 
-**A deploy seems to have changed nothing.** The old process survived. `deploy.sh` force-stops for exactly this reason and warns if the pid did not change; if you installed by hand, `adb shell am force-stop com.wiimtvapp` and relaunch.
+**A deploy seems to have changed nothing.** The old process survived. `deploy.sh` force-stops for exactly this reason and warns if the pid did not change; if you installed by hand, `adb shell am force-stop com.wymtv` and relaunch.
 
 **`adb connect` fails or the device shows as `unauthorized`.** Wake the stick, accept the "Allow USB debugging?" prompt on the TV, and if needed `adb kill-server && adb start-server`.
 
@@ -347,7 +347,7 @@ src/
   hooks/               album art resolution, accent extraction, inactivity timer
   store/               zustand stores for the device and the player, with AsyncStorage
   config/              hosts, plex, display
-android/app/src/main/java/com/wiimtvapp/
+android/app/src/main/java/com/wymtv/
   MainActivity.kt      remote key interception, emits WiiMNavKey / WiiMRemoteKey
   WakeControlModule.kt keepAwake, restartApp, exitApp
 ```

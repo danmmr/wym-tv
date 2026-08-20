@@ -1,4 +1,4 @@
-package com.wiimtvapp
+package com.wymtv
 
 import android.content.Intent
 import android.view.WindowManager

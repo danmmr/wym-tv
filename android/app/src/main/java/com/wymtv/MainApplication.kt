@@ -1,4 +1,4 @@
-package com.wiimtvapp
+package com.wymtv
 
 import android.app.Application
 import com.facebook.react.PackageList

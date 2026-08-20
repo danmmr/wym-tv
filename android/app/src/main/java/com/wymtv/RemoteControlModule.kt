@@ -1,4 +1,4 @@
-package com.wiimtvapp
+package com.wymtv
 
 import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.bridge.ReactContextBaseJavaModule

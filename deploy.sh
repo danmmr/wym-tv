@@ -1,5 +1,5 @@
 #!/bin/bash
-# Build and deploy WiiM TV to one or more Fire Sticks over ADB.
+# Build and deploy WyM TV to one or more Fire Sticks over ADB.
 #
 # Usage:
 #   ./deploy.sh                 # primary stick only (default while iterating)
@@ -12,7 +12,7 @@
 
 set -euo pipefail
 
-APP_ID="com.wiimtvapp"
+APP_ID="com.wymtv"
 ACTIVITY="$APP_ID/.MainActivity"
 APK="android/app/build/outputs/apk/release/app-release.apk"
 

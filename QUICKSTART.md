@@ -32,7 +32,7 @@ which is where `adb` lives — on the PATH.
 ## 2. Clone and configure
 
 ```bash
-git clone <this repo> WiimTVApp && cd WiimTVApp
+git clone <this repo> wym-tv && cd wym-tv
 npm install
 cp src/config/hosts.data.example.json src/config/hosts.data.json
 cp src/config/plex.example.ts src/config/plex.ts
@@ -166,7 +166,7 @@ it.
 
 **The deploy seemed to change nothing.** The old process survived. `deploy.sh`
 force-stops for exactly this reason and warns if the pid did not change; after a
-manual install, run `adb shell am force-stop com.wiimtvapp` and relaunch.
+manual install, run `adb shell am force-stop com.wymtv` and relaunch.
 
 **`adb connect` fails, or the device shows as `unauthorized`.** Wake the stick
 and accept the debugging prompt on the TV; if it persists,

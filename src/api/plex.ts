@@ -1,4 +1,5 @@
 import axios from 'axios';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import {randomOrderEnabled} from '../config/display';
 import {PLEX} from '../config/plex';
 import type {QueueTrack} from './wiim';
@@ -79,14 +80,132 @@ async function plexGet(path: string): Promise<any> {
 const str = (v: any, fallback = ''): string =>
   v === undefined || v === null ? fallback : String(v);
 
-// --- album catalog (cached in-session for a stable random order) ------------
+// --- album catalog (cached in-session AND on disk) --------------------------
 // albumCache is the COMPLETE catalog. It backs getArtists()/getAlbumsByArtist()
 // and the Search tab, so it must never be seeded with a partial result. It is
-// now loaded lazily — only the tabs that genuinely need every album pay for it.
+// loaded lazily — only the tabs that genuinely need every album pay for it —
+// and it is mirrored to AsyncStorage so a cold app start does not re-page the
+// whole library over wifi.
 let albumCache: PlexAlbum[] | null = null;
 let sampleCache: PlexAlbum[] | null = null;
 
 const PAGE = 800;
+
+// Fields Plex sends by default that this client never reads. Excluding them
+// roughly HALVES the wire payload (measured against a real server: 710 KB ->
+// 331 KB for an 800-album page), and on a Fire Stick the JSON parse — not the
+// transfer — is the expensive half. Anything mapped into PlexAlbum below must
+// stay OFF this list.
+const EXCLUDE_FIELDS =
+  'summary,guid,parentGuid,titleSort,studio,originallyAvailableAt,art,' +
+  'rating,loudnessAnalysisVersion,index,key,parentKey,parentThumb,' +
+  'addedAt,updatedAt,lastViewedAt,viewCount,skipCount';
+
+// The one query string used for every album page, sample included, so the
+// exclusion list can never drift between the two call sites.
+export const ALBUM_QUERY = `type=9&excludeFields=${EXCLUDE_FIELDS}`;
+
+function toAlbum(d: any): PlexAlbum {
+  return {
+    ratingKey: str(d.ratingKey),
+    title: str(d.title),
+    artist: str(d.parentTitle), // Plex: album's artist is parentTitle
+    artistKey: str(d.parentRatingKey),
+    thumb: str(d.thumb),
+    year: str(d.year),
+  };
+}
+
+// --- disk cache -------------------------------------------------------------
+// Serialized the catalog is small: only the six mapped fields are stored, which
+// measures ~160 bytes per album, so even a large library sits well inside
+// AsyncStorage's 6 MB Android budget. Past ~30k albums, raise
+// AsyncStorage_db_size_in_MB in android/gradle.properties rather than dropping
+// the cache.
+const CATALOG_KEY = 'plex.catalog.v1';
+
+interface CachedCatalog {
+  fingerprint: string;
+  albums: PlexAlbum[];
+}
+
+// A cheap token that changes whenever the music library's contents change.
+// /library/sections answers in ~30 ms (vs ~1.1 s for a Container-Size=0 count
+// probe, which makes Plex tally the section), so this is the validity check.
+// contentChangedAt is the field that actually bumps on an add or a delete;
+// scannedAt and updatedAt ride along so an edit that only touches metadata
+// still busts the cache.
+async function libraryFingerprint(): Promise<string | null> {
+  try {
+    const mc = await plexGet('/library/sections');
+    const dirs: any[] = mc.Directory || [];
+    const sec = dirs.find(d => str(d.key) === String(PLEX.musicSection));
+    if (!sec) {
+      return null;
+    }
+    return `${str(sec.contentChangedAt, '0')}:${str(sec.scannedAt, '0')}:${str(
+      sec.updatedAt,
+      '0',
+    )}`;
+  } catch {
+    return null; // server unreachable — fall back to whatever is on disk
+  }
+}
+
+async function readCachedCatalog(): Promise<CachedCatalog | null> {
+  try {
+    const raw = await AsyncStorage.getItem(CATALOG_KEY);
+    if (!raw) {
+      return null;
+    }
+    const parsed = JSON.parse(raw);
+    if (
+      !parsed ||
+      typeof parsed.fingerprint !== 'string' ||
+      !Array.isArray(parsed.albums) ||
+      !parsed.albums.length
+    ) {
+      return null;
+    }
+    return parsed as CachedCatalog;
+  } catch {
+    return null; // corrupt or truncated entry — just re-fetch
+  }
+}
+
+// Fire-and-forget: a failed write only costs the next launch a re-fetch.
+function writeCachedCatalog(fingerprint: string, albums: PlexAlbum[]): void {
+  AsyncStorage.setItem(
+    CATALOG_KEY,
+    JSON.stringify({fingerprint, albums} as CachedCatalog),
+  ).catch(() => {});
+}
+
+// Drop the on-disk catalog. Not called in the normal flow — the fingerprint
+// handles staleness — but the escape hatch if a cache is ever suspected bad.
+export async function clearCatalogCache(): Promise<void> {
+  albumCache = null;
+  artistsCache = null;
+  shuffledArtistsCache = null;
+  await AsyncStorage.removeItem(CATALOG_KEY).catch(() => {});
+}
+
+// One page of albums, mapped. Pages are fetched by index so a parallel run can
+// still reassemble them in the server's order.
+async function fetchAlbumPage(page: number): Promise<{
+  albums: PlexAlbum[];
+  total: number;
+}> {
+  const mc = await plexGet(
+    `/library/sections/${PLEX.musicSection}/all?${ALBUM_QUERY}` +
+      `&X-Plex-Container-Start=${page * PAGE}&X-Plex-Container-Size=${PAGE}`,
+  );
+  const items: any[] = mc.Metadata || [];
+  return {
+    albums: items.filter(d => d.ratingKey != null).map(toAlbum),
+    total: mc.totalSize ?? mc.size ?? items.length,
+  };
+}
 
 export async function loadAllAlbums(
   onProgress?: (loaded: number, total: number) => void,
@@ -95,41 +214,43 @@ export async function loadAllAlbums(
     return albumCache;
   }
 
-  const all: PlexAlbum[] = [];
-  let start = 0;
-  let total = Infinity;
-
-  while (start < total) {
-    const mc = await plexGet(
-      `/library/sections/${PLEX.musicSection}/all` +
-        '?type=9&excludeFields=summary' +
-        `&X-Plex-Container-Start=${start}&X-Plex-Container-Size=${PAGE}`,
-    );
-    if (total === Infinity) {
-      total = mc.totalSize ?? mc.size ?? 0;
-    }
-    const items: any[] = mc.Metadata || [];
-    for (const d of items) {
-      if (d.ratingKey == null) {
-        continue;
-      }
-      all.push({
-        ratingKey: str(d.ratingKey),
-        title: str(d.title),
-        artist: str(d.parentTitle), // Plex: album's artist is parentTitle
-        artistKey: str(d.parentRatingKey),
-        thumb: str(d.thumb),
-        year: str(d.year),
-      });
-    }
-    start += PAGE;
-    onProgress?.(all.length, total === Infinity ? all.length : total);
-    if (items.length === 0) {
-      break;
-    } // safety against an endless loop
+  // Warm path: a fingerprint match means the disk copy is current, and the
+  // whole paged fetch is skipped.
+  const fingerprint = await libraryFingerprint();
+  const cached = await readCachedCatalog();
+  if (cached && (fingerprint === null || cached.fingerprint === fingerprint)) {
+    albumCache = cached.albums;
+    onProgress?.(albumCache.length, albumCache.length);
+    return albumCache;
   }
 
+  // Cold path. Page 0 tells us the total, and the remaining pages then go out
+  // together instead of one round trip at a time.
+  const first = await fetchAlbumPage(0);
+  const total = first.total;
+  onProgress?.(first.albums.length, total || first.albums.length);
+
+  const pages: PlexAlbum[][] = [first.albums];
+  const rest = Math.max(0, Math.ceil(total / PAGE) - 1);
+  if (rest > 0) {
+    let loaded = first.albums.length;
+    const results = await Promise.all(
+      Array.from({length: rest}, (_v, i) =>
+        fetchAlbumPage(i + 1).then(r => {
+          loaded += r.albums.length;
+          onProgress?.(loaded, total);
+          return r.albums;
+        }),
+      ),
+    );
+    pages.push(...results);
+  }
+
+  const all = ([] as PlexAlbum[]).concat(...pages);
   albumCache = all;
+  if (fingerprint && all.length) {
+    writeCachedCatalog(fingerprint, all);
+  }
   return all;
 }
 
@@ -193,25 +314,13 @@ export async function getAlbumSample(
     return sampleCache;
   }
   const mc = await plexGet(
-    `/library/sections/${PLEX.musicSection}/all` +
-      '?type=9&excludeFields=summary' +
+    `/library/sections/${PLEX.musicSection}/all?${ALBUM_QUERY}` +
       `&sort=${randomOrderEnabled() ? 'random' : 'titleSort'}` +
       `&X-Plex-Container-Start=0&X-Plex-Container-Size=${count}`,
   );
-  const out: PlexAlbum[] = [];
-  for (const d of mc.Metadata || []) {
-    if (d.ratingKey == null) {
-      continue;
-    }
-    out.push({
-      ratingKey: str(d.ratingKey),
-      title: str(d.title),
-      artist: str(d.parentTitle),
-      artistKey: str(d.parentRatingKey),
-      thumb: str(d.thumb),
-      year: str(d.year),
-    });
-  }
+  const out: PlexAlbum[] = (mc.Metadata || [])
+    .filter((d: any) => d.ratingKey != null)
+    .map(toAlbum);
   sampleCache = out;
   return out;
 }

@@ -226,6 +226,9 @@ export default function BrowseScreen({navigation, route}: any) {
   // grid wait for it. Kept separate from `albums` so neither truncates.
   const [catalog, setCatalog] = useState<PlexAlbum[]>([]);
   const [libraryLoading, setLibraryLoading] = useState(false);
+  // Separate from libraryLoading: the artist roster is derived AFTER the
+  // catalog lands, and Search must not sit behind work only Artists uses.
+  const [artistsLoading, setArtistsLoading] = useState(false);
   const libraryRequested = useRef(false);
 
   // Recently added grid state (its own light query, not the full catalog).
@@ -360,16 +363,26 @@ export default function BrowseScreen({navigation, route}: any) {
   // substring). Empty query shows the whole catalog. Pure in-memory over the
   // lazily-loaded full `catalog` — NOT the 500-album grid sample, so searching
   // still reaches every album in the library. No extra Plex calls.
+  // One lowercased "title\nartist" haystack per album, built once when the
+  // catalog lands. Without it every keystroke re-lowercased both fields of all
+  // ~5.6k albums — over 11k throwaway strings per key press on Hermes.
+  const searchIndex = useMemo(
+    () => catalog.map(a => `${a.title}\n${a.artist}`.toLowerCase()),
+    [catalog],
+  );
   const filteredSearch = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     if (!q) {
       return catalog;
     }
-    return catalog.filter(
-      a =>
-        a.title.toLowerCase().includes(q) || a.artist.toLowerCase().includes(q),
-    );
-  }, [catalog, searchQuery]);
+    const out: PlexAlbum[] = [];
+    for (let i = 0; i < catalog.length; i++) {
+      if (searchIndex[i].indexOf(q) !== -1) {
+        out.push(catalog[i]);
+      }
+    }
+    return out;
+  }, [catalog, searchIndex, searchQuery]);
   useEffect(() => {
     filteredSearchRef.current = filteredSearch;
   }, [filteredSearch]);
@@ -412,10 +425,19 @@ export default function BrowseScreen({navigation, route}: any) {
     setClient(wiimClient);
     clientRef.current = wiimClient;
     loadData(wiimClient);
-    loadAlbums();
     loadRecent();
     loadPlaylists();
     loadCollections();
+    // Prefetch the full catalog in the background so arrowing over to Search or
+    // Artists finds it already in hand instead of starting a load. Usually a
+    // ~30 ms fingerprint check plus a read of the AsyncStorage copy; the paged
+    // fetch only happens when the library actually changed.
+    //
+    // Chained AFTER the album grid rather than fired alongside it: on a cold
+    // cache this is several concurrent page requests, and the tab the user is
+    // actually looking at should not queue behind them. loadAlbums swallows its
+    // own errors, so this always runs.
+    loadAlbums().then(loadLibrary);
     // Runs when the selected device changes. navigation is stable and listing it
     // would re-run the whole Plex load.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -516,18 +538,23 @@ export default function BrowseScreen({navigation, route}: any) {
     }
     libraryRequested.current = true;
     setLibraryLoading(true);
+    setArtistsLoading(true);
     setProgress({loaded: 0, total: 0});
     try {
       const all = await loadAllAlbums((loaded, total) =>
         setProgress({loaded, total}),
       );
       setCatalog(all);
+      // Search is complete the moment the catalog exists — drop its spinner
+      // before deriving the roster, which is pure CPU over the same albums.
+      setLibraryLoading(false);
       setAllArtists(await getShuffledArtists());
     } catch (e: any) {
       setStatusMsg('Could not load library: ' + (e?.message || 'error'));
       libraryRequested.current = false; // let the next tab entry retry
     } finally {
       setLibraryLoading(false);
+      setArtistsLoading(false);
     }
   };
 
@@ -1557,7 +1584,7 @@ export default function BrowseScreen({navigation, route}: any) {
           renderCollectionsTab()
         )
       ) : activeTab === 'artists' ? (
-        libraryLoading ? (
+        libraryLoading || artistsLoading ? (
           <View style={styles.loadingBox}>
             <ActivityIndicator size="large" color="#3b9eff" />
             <Text style={styles.loadingText}>

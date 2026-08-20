@@ -167,12 +167,19 @@ function pagedResponder(url: string) {
   };
 }
 
+// Membership is cached on disk now, so a drill-in also probes /library/sections
+// for the fingerprint that validates it. These tests are about PAGING, so they
+// count the /children requests specifically rather than every call — counting
+// all of them would break again on any unrelated request the loader picks up.
+const childCalls = (get: jest.Mock) =>
+  get.mock.calls.map(c => c[0] as string).filter(u => u.includes('/children'));
+
 describe('getCollectionAlbums', () => {
   it('pages until it has every album, not just the first container', async () => {
     const {plex, get} = loadPlex(pagedResponder);
     const out = await plex.getCollectionAlbums('59646');
     expect(out).toHaveLength(TOTAL);
-    expect(get).toHaveBeenCalledTimes(2);
+    expect(childCalls(get)).toHaveLength(2);
     expect(out[0].title).toBe('Album 0');
     expect(out[TOTAL - 1].title).toBe('Album 999');
   });
@@ -208,7 +215,7 @@ describe('getCollectionAlbums', () => {
       MediaContainer: {size: 0, totalSize: 500, Metadata: []},
     }));
     await expect(plex.getCollectionAlbums('bogus')).resolves.toEqual([]);
-    expect(get).toHaveBeenCalledTimes(1);
+    expect(childCalls(get)).toHaveLength(1);
   });
 });
 

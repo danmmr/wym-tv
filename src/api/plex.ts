@@ -152,6 +152,16 @@ async function libraryFingerprint(): Promise<string | null> {
   }
 }
 
+// One probe per session, shared by the catalog and the collection cache. Both
+// are invalidated by the same library change, so probing twice would be waste.
+let fingerprintPromise: Promise<string | null> | null = null;
+function currentFingerprint(): Promise<string | null> {
+  if (!fingerprintPromise) {
+    fingerprintPromise = libraryFingerprint();
+  }
+  return fingerprintPromise;
+}
+
 async function readCachedCatalog(): Promise<CachedCatalog | null> {
   try {
     const raw = await AsyncStorage.getItem(CATALOG_KEY);
@@ -187,7 +197,12 @@ export async function clearCatalogCache(): Promise<void> {
   albumCache = null;
   artistsCache = null;
   shuffledArtistsCache = null;
-  await AsyncStorage.removeItem(CATALOG_KEY).catch(() => {});
+  collectionCache.clear();
+  collectionKeyCache = null;
+  fingerprintPromise = null;
+  await AsyncStorage.multiRemove([CATALOG_KEY, COLLECTIONS_KEY]).catch(
+    () => {},
+  );
 }
 
 // One page of albums, mapped. Pages are fetched by index so a parallel run can
@@ -207,16 +222,31 @@ async function fetchAlbumPage(page: number): Promise<{
   };
 }
 
-export async function loadAllAlbums(
+// In-flight guard. Browse prefetches the catalog on mount while a tab entry can
+// ask for it too; without this, two overlapping callers would each page the
+// whole library, since albumCache is only set once the last page lands.
+let loadPromise: Promise<PlexAlbum[]> | null = null;
+
+export function loadAllAlbums(
   onProgress?: (loaded: number, total: number) => void,
 ): Promise<PlexAlbum[]> {
   if (albumCache) {
-    return albumCache;
+    return Promise.resolve(albumCache);
   }
+  if (!loadPromise) {
+    loadPromise = fetchAllAlbums(onProgress).finally(() => {
+      loadPromise = null;
+    });
+  }
+  return loadPromise;
+}
 
+async function fetchAllAlbums(
+  onProgress?: (loaded: number, total: number) => void,
+): Promise<PlexAlbum[]> {
   // Warm path: a fingerprint match means the disk copy is current, and the
   // whole paged fetch is skipped.
-  const fingerprint = await libraryFingerprint();
+  const fingerprint = await currentFingerprint();
   const cached = await readCachedCatalog();
   if (cached && (fingerprint === null || cached.fingerprint === fingerprint)) {
     albumCache = cached.albums;
@@ -772,6 +802,70 @@ export async function getCollections(): Promise<PlexCollection[]> {
 // still show up on the next app start.
 const collectionCache = new Map<string, PlexAlbum[]>();
 
+// --- collection membership, cached on disk ----------------------------------
+// The big collections here run to ~1,500 albums over two pages, and that was
+// re-paged on the first drill-in of every session. It is cached now, but what
+// is STORED is only the rating keys: a collection's children are all albums
+// that the catalog already holds, so persisting them again would duplicate
+// ~160 bytes per album for nothing. Keys cost ~7 bytes each, and rehydrating
+// through the catalog means the two can never disagree about an album's title
+// or art.
+//
+// NOT derived from the catalog's own `Collection` tags, which would need no
+// storage at all: Plex caps the tag list it returns per item, so that
+// reproduced "New Additions" exactly (1505/1505) but silently returned 128 of
+// 297 for a smaller collection. A collection that quietly loses half its
+// albums has no visible symptom, so membership comes from the server.
+const COLLECTIONS_KEY = 'plex.collections.v1';
+
+interface CachedCollections {
+  fingerprint: string;
+  keys: Record<string, string[]>; // collection ratingKey -> album ratingKeys
+}
+
+let collectionKeyCache: Record<string, string[]> | null = null;
+
+// Load the persisted membership map once per session, discarding it unless the
+// library still matches the fingerprint it was written under.
+async function collectionKeys(): Promise<Record<string, string[]>> {
+  if (collectionKeyCache) {
+    return collectionKeyCache;
+  }
+  collectionKeyCache = {};
+  try {
+    const [raw, fingerprint] = await Promise.all([
+      AsyncStorage.getItem(COLLECTIONS_KEY),
+      currentFingerprint(),
+    ]);
+    if (raw && fingerprint) {
+      const parsed = JSON.parse(raw) as CachedCollections;
+      if (parsed?.fingerprint === fingerprint && parsed.keys) {
+        collectionKeyCache = parsed.keys;
+      }
+    }
+  } catch {
+    // corrupt entry, or no server to validate against — start empty
+  }
+  return collectionKeyCache;
+}
+
+async function rememberCollection(
+  ratingKey: string,
+  albums: PlexAlbum[],
+): Promise<void> {
+  const fingerprint = await currentFingerprint();
+  if (!fingerprint) {
+    return; // unverifiable, so not worth persisting
+  }
+  const keys = await collectionKeys();
+  keys[ratingKey] = albums.map(a => a.ratingKey);
+  AsyncStorage.setItem(
+    COLLECTIONS_KEY,
+    JSON.stringify({fingerprint, keys} as CachedCollections),
+  ).catch(() => {});
+}
+
+// All albums in one collection, in the collection's own order.
 export async function getCollectionAlbums(
   ratingKey: string,
 ): Promise<PlexAlbum[]> {
@@ -780,14 +874,36 @@ export async function getCollectionAlbums(
     return hit;
   }
 
+  // Warm path: stored keys, resolved against the catalog. Any key the catalog
+  // does not know means the two are out of step, so the whole entry is dropped
+  // and re-fetched rather than handing back a collection missing albums.
+  const stored = (await collectionKeys())[ratingKey];
+  if (stored && stored.length) {
+    const catalog = await loadAllAlbums();
+    const byKey = new Map(catalog.map(a => [a.ratingKey, a]));
+    const resolved: PlexAlbum[] = [];
+    let intact = true;
+    for (const k of stored) {
+      const album = byKey.get(k);
+      if (!album) {
+        intact = false;
+        break;
+      }
+      resolved.push(album);
+    }
+    if (intact) {
+      collectionCache.set(ratingKey, resolved);
+      return resolved;
+    }
+  }
+
   const all: PlexAlbum[] = [];
   let start = 0;
   let total = Infinity;
 
   while (start < total) {
     const mc = await plexGet(
-      `/library/collections/${ratingKey}/children` +
-        '?excludeFields=summary' +
+      `/library/collections/${ratingKey}/children?${ALBUM_QUERY}` +
         `&X-Plex-Container-Start=${start}&X-Plex-Container-Size=${PAGE}`,
     );
     if (total === Infinity) {
@@ -798,14 +914,7 @@ export async function getCollectionAlbums(
       if (d.ratingKey == null) {
         continue;
       }
-      all.push({
-        ratingKey: str(d.ratingKey),
-        title: str(d.title),
-        artist: str(d.parentTitle),
-        artistKey: str(d.parentRatingKey),
-        thumb: str(d.thumb),
-        year: str(d.year),
-      });
+      all.push(toAlbum(d));
     }
     if (!items.length) {
       break; // defensive: never loop forever on an unexpected empty page
@@ -814,6 +923,7 @@ export async function getCollectionAlbums(
   }
 
   collectionCache.set(ratingKey, all);
+  rememberCollection(ratingKey, all).catch(() => {});
   return all;
 }
 

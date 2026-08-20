@@ -86,6 +86,19 @@ function server(opts: {contentChangedAt?: number; fail?: boolean} = {}) {
       }
       return sections(opts.contentChangedAt);
     }
+    const coll = /\/library\/collections\/(\d+)\/children/.exec(url);
+    if (coll) {
+      // Collection 700 holds albums 1 and 3, in that order — not catalog order,
+      // so a rehydrate that sorts or dedupes would be caught.
+      const members = [album(1), album(3)];
+      return {
+        MediaContainer: {
+          totalSize: members.length,
+          size: members.length,
+          Metadata: members,
+        },
+      };
+    }
     const start = Number(/X-Plex-Container-Start=(\d+)/.exec(url)?.[1] ?? 0);
     const size = Number(/X-Plex-Container-Size=(\d+)/.exec(url)?.[1] ?? 0);
     const items = [];
@@ -208,6 +221,92 @@ describe('album catalog disk cache', () => {
 
     await plex.clearCatalogCache();
     expect(await AsyncStorage.getItem('plex.catalog.v1')).toBeNull();
+  });
+});
+
+describe('collection membership cache', () => {
+  const childUrls = (get: jest.Mock) =>
+    get.mock.calls
+      .map(c => c[0] as string)
+      .filter(u => u.includes('/children'));
+
+  it('stores only rating keys, not whole albums', async () => {
+    const {plex} = loadPlex(server());
+    await plex.getCollectionAlbums('700');
+    await new Promise(r => setImmediate(r));
+
+    const raw = await AsyncStorage.getItem('plex.collections.v1');
+    expect(raw).not.toBeNull();
+    const saved = JSON.parse(raw as string);
+    expect(saved.keys['700']).toEqual(['1001', '1003']);
+    // The point of storing keys: the album bodies live in the catalog only.
+    expect(raw).not.toContain('Album 1');
+  });
+
+  it('rehydrates from the catalog on a cold start, in collection order', async () => {
+    const first = loadPlex(server());
+    await first.plex.getCollectionAlbums('700');
+    await new Promise(r => setImmediate(r));
+
+    const second = loadPlex(server());
+    const albums = await second.plex.getCollectionAlbums('700');
+
+    expect(albums.map(a => a.ratingKey)).toEqual(['1001', '1003']);
+    expect(albums[0].title).toBe('Album 1'); // resolved to full records
+    expect(childUrls(second.get)).toEqual([]); // no children request at all
+  });
+
+  it('re-fetches rather than returning a collection missing albums', async () => {
+    const first = loadPlex(server());
+    await first.plex.getCollectionAlbums('700');
+    await new Promise(r => setImmediate(r));
+
+    // Forge a stored key the catalog does not contain. Handing back the albums
+    // it CAN resolve would silently shrink the collection.
+    const raw = JSON.parse(
+      (await AsyncStorage.getItem('plex.collections.v1')) as string,
+    );
+    raw.keys['700'] = ['1001', '9999'];
+    await AsyncStorage.setItem('plex.collections.v1', JSON.stringify(raw));
+
+    const second = loadPlex(server());
+    const albums = await second.plex.getCollectionAlbums('700');
+
+    expect(albums.map(a => a.ratingKey)).toEqual(['1001', '1003']);
+    expect(childUrls(second.get).length).toBeGreaterThan(0);
+  });
+
+  it('drops stored membership when the library changed', async () => {
+    const first = loadPlex(server());
+    await first.plex.getCollectionAlbums('700');
+    await new Promise(r => setImmediate(r));
+
+    const second = loadPlex(server({contentChangedAt: 4127250}));
+    await second.plex.getCollectionAlbums('700');
+
+    expect(childUrls(second.get).length).toBeGreaterThan(0);
+  });
+
+  it('asks the server for membership, never the catalog Collection tags', async () => {
+    // Plex caps the Collection tag list per item, so deriving membership from
+    // the catalog returned 128 of 297 albums for a real collection.
+    const {plex, get} = loadPlex(server());
+    await plex.getCollectionAlbums('700');
+    expect(childUrls(get).length).toBeGreaterThan(0);
+  });
+});
+
+describe('concurrent catalog loads', () => {
+  it('pages the library once when two callers overlap', async () => {
+    // Browse prefetches on mount while a tab entry can ask for the catalog too.
+    const {plex, get} = loadPlex(server());
+    const [a, b] = await Promise.all([
+      plex.loadAllAlbums(),
+      plex.loadAllAlbums(),
+    ]);
+
+    expect(a).toBe(b); // same array, not two independent fetches
+    expect(albumUrls(get)).toHaveLength(1);
   });
 });
 

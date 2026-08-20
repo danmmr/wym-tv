@@ -46,9 +46,17 @@ export default function AlbumScreen({route, navigation}: any) {
   // Mirrors for the once-registered key handler.
   const focusRef = useRef(0);
   const tracksRef = useRef<PlexTrack[]>([]);
-  useEffect(() => {
-    focusRef.current = focus;
-  }, [focus]);
+  // Focus moves are written to the ref SYNCHRONOUSLY, not in an effect.
+  // The D-pad handler computes the next position from the ref, and an effect
+  // only runs after React commits — so two presses arriving before that commit
+  // both read the same stale position, the second computes the same
+  // destination, and one of the two presses is silently lost. Five presses,
+  // three moves. It reads as lag, and it is worst at startup when the JS thread
+  // is busy and commits are slowest.
+  const moveFocus = (n: number) => {
+    focusRef.current = n;
+    setFocus(n);
+  };
   useEffect(() => {
     tracksRef.current = tracks;
   }, [tracks]);
@@ -124,12 +132,12 @@ export default function AlbumScreen({route, navigation}: any) {
         const n = tracksRef.current.length;
         if (k === 'up') {
           if (f > 0) {
-            setFocus(f - 1);
+            moveFocus(f - 1);
             scrollTo(f - 1);
           }
         } else if (k === 'down') {
           if (f + 1 < n) {
-            setFocus(f + 1);
+            moveFocus(f + 1);
             scrollTo(f + 1);
           }
         } else if (k === 'left') {

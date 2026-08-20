@@ -101,9 +101,18 @@ export default function DiscoveryScreen({navigation}: any) {
     }
   };
 
-  React.useEffect(() => {
-    focusIdxRef.current = focusIdx;
-  }, [focusIdx]);
+  // Focus moves are written to the ref SYNCHRONOUSLY, not in an effect.
+  // The D-pad handler computes the next position from the ref, and an effect
+  // only runs after React commits — so two presses arriving before that commit
+  // both read the same stale position, the second computes the same
+  // destination, and one of the two presses is silently lost. Five presses,
+  // three moves. It reads as lag, and it is worst at startup when the JS thread
+  // is busy and commits are slowest.
+  const moveFocus = (next: (i: number) => number) => {
+    const n = next(focusIdxRef.current);
+    focusIdxRef.current = n;
+    setFocusIdx(n);
+  };
 
   // Keep the focused card on screen. Without this the list never scrolls, so
   // any device past the second one sat under the Scan button, half-drawn.
@@ -130,13 +139,13 @@ export default function DiscoveryScreen({navigation}: any) {
   useFocusEffect(
     useCallback(() => {
       captureDpad();
-      setFocusIdx(i => Math.min(i, itemsRef.current.length - 1));
+      moveFocus(i => Math.min(i, itemsRef.current.length - 1));
       const sub = subscribeNav((k: string) => {
         const len = itemsRef.current.length;
         if (k === 'up') {
-          setFocusIdx(i => Math.max(0, i - 1));
+          moveFocus(i => Math.max(0, i - 1));
         } else if (k === 'down') {
-          setFocusIdx(i => Math.min(len - 1, i + 1));
+          moveFocus(i => Math.min(len - 1, i + 1));
         } else if (k === 'select') {
           activate(itemsRef.current[focusIdxRef.current]);
         }

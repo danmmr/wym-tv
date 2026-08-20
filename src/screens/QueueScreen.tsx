@@ -33,9 +33,17 @@ export default function QueueScreen({navigation}: any) {
   const itemsRef = useRef<QueueItem[]>([]);
   const listNameRef = useRef('');
   const shuffleRef = useRef(false);
-  useEffect(() => {
-    focusRef.current = focus;
-  }, [focus]);
+  // Focus moves are written to the ref SYNCHRONOUSLY, not in an effect.
+  // The D-pad handler computes the next position from the ref, and an effect
+  // only runs after React commits — so two presses arriving before that commit
+  // both read the same stale position, the second computes the same
+  // destination, and one of the two presses is silently lost. Five presses,
+  // three moves. It reads as lag, and it is worst at startup when the JS thread
+  // is busy and commits are slowest.
+  const moveFocus = (n: number) => {
+    focusRef.current = n;
+    setFocus(n);
+  };
   useEffect(() => {
     itemsRef.current = items;
   }, [items]);
@@ -76,8 +84,7 @@ export default function QueueScreen({navigation}: any) {
       setShuffle(loop === 2 || loop === 3);
       setStatus(q.items.length ? '' : 'Queue is empty');
       const f = cur > 0 ? cur : 1;
-      setFocus(f);
-      focusRef.current = f;
+      moveFocus(f);
       setTimeout(() => scrollToTrack(f), 0);
     } catch (e: any) {
       setStatus('Could not read the queue');
@@ -140,19 +147,19 @@ export default function QueueScreen({navigation}: any) {
         const n = itemsRef.current.length;
         if (k === 'up') {
           if (f <= 1) {
-            setFocus(0);
+            moveFocus(0);
           } else {
             const nf = f - 1;
-            setFocus(nf);
+            moveFocus(nf);
             scrollToTrack(nf);
           }
         } else if (k === 'down') {
           if (f === 0) {
-            setFocus(1);
+            moveFocus(1);
             scrollToTrack(1);
           } else if (f < n) {
             const nf = f + 1;
-            setFocus(nf);
+            moveFocus(nf);
             scrollToTrack(nf);
           }
         } else if (k === 'left') {

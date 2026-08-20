@@ -536,9 +536,19 @@ export default function NowPlayingScreen({navigation}: any) {
     }
   };
 
-  useEffect(() => {
-    focusPosRef.current = {row: focusRow, col: focusCol};
-  }, [focusRow, focusCol]);
+  // Focus moves are written to the ref SYNCHRONOUSLY, not in an effect.
+  // The D-pad handler computes the next position from the ref, and an effect
+  // only runs after React commits — so two presses arriving before that commit
+  // both read the same stale position, the second computes the same
+  // destination, and one of the two presses is silently lost. Five presses,
+  // three moves. It reads as lag, and it is worst at startup when the JS thread
+  // is busy and commits are slowest.
+  const moveFocus = (row: number, col: number) => {
+    const c = Math.min(Math.max(0, col), ROWS[row].length - 1);
+    focusPosRef.current = {row, col: c};
+    setFocusRow(row);
+    setFocusCol(c);
+  };
 
   useEffect(() => {
     showScreensaverRef.current = showScreensaver;
@@ -585,17 +595,13 @@ export default function NowPlayingScreen({navigation}: any) {
         resetInactivityTimer();
         const {row, col} = focusPosRef.current;
         if (k === 'left') {
-          setFocusCol(Math.max(0, col - 1));
+          moveFocus(row, col - 1);
         } else if (k === 'right') {
-          setFocusCol(Math.min(ROWS[row].length - 1, col + 1));
+          moveFocus(row, col + 1);
         } else if (k === 'up') {
-          const nr = Math.max(0, row - 1);
-          setFocusRow(nr);
-          setFocusCol(c => Math.min(c, ROWS[nr].length - 1));
+          moveFocus(Math.max(0, row - 1), col);
         } else if (k === 'down') {
-          const nr = Math.min(ROWS.length - 1, row + 1);
-          setFocusRow(nr);
-          setFocusCol(c => Math.min(c, ROWS[nr].length - 1));
+          moveFocus(Math.min(ROWS.length - 1, row + 1), col);
         } else if (k === 'select') {
           const {row: r, col: c} = focusPosRef.current;
           activate(ROWS[r][c]);

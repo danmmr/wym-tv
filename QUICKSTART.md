@@ -15,7 +15,7 @@ For the full picture — every screen, every setting, the failure modes — see
 | **A WiiM / LinkPlay device** | Does the actual playback. WiiM Ultra, Mini, Pro, Amp — anything speaking the LinkPlay HTTP API. |
 | **A Plex Media Server** | Serves the library, the artwork and the audio files. Needs a **music** library. |
 | **A Fire TV Stick** | Runs this app. ADB debugging must be on (step 3). |
-| **A Mac to build on** | Node 20, Java 17, the Android SDK. Node 25 breaks the RN CLI and Java 26 breaks Gradle 8 — `deploy.sh` pins the working versions itself, it does not install them. |
+| **A machine to build on** | Node 18-20, Java 17, the Android SDK. Both are ceilings: Node 21+ breaks the RN CLI and Java 18+ breaks Gradle 8. `deploy.sh` finds working versions itself if what you have does not qualify — it does not install them. macOS and Linux both work. |
 
 All three devices must be on the same LAN.
 
@@ -23,9 +23,10 @@ All three devices must be on the same LAN.
 brew install node@20 openjdk@17
 ```
 
-The Android SDK is expected at `~/Library/Android/sdk` (Android Studio's default
-location). `deploy.sh` sets `ANDROID_SDK_ROOT` there and puts `platform-tools` —
-which is where `adb` lives — on the PATH.
+The Android SDK is looked for at `~/Library/Android/sdk` (Android Studio's
+default on macOS) and `~/Android/Sdk` (its default on Linux). If yours lives
+elsewhere, export `ANDROID_SDK_ROOT` and `deploy.sh` will use it. Either way it
+puts `platform-tools` — which is where `adb` lives — on the PATH.
 
 ---
 
@@ -34,12 +35,17 @@ which is where `adb` lives — on the PATH.
 ```bash
 git clone <this repo> wym-tv && cd wym-tv
 npm install
-cp src/config/hosts.data.example.json src/config/hosts.data.json
-cp src/config/plex.example.ts src/config/plex.ts
 ```
 
-Both config files are gitignored, and `deploy.sh` stops with instructions if
-either is missing.
+`npm install` also creates the two config files you are about to edit, copying
+them from the tracked examples. Both are gitignored — one is your network's
+layout, the other may hold a Plex token — and the copy only happens when they
+are absent, so re-running `npm install` never overwrites your values. (`npm run
+setup` does the same thing on demand.)
+
+Until you edit them they hold placeholder addresses: enough for `npm test` and
+the typecheck to pass on a clean clone, not enough to reach a real server.
+`deploy.sh` stops with instructions rather than building against them.
 
 ### `src/config/hosts.data.json` — every LAN address
 

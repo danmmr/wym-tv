@@ -11,13 +11,16 @@ WyM TV (package `com.wymtv`, display name **WyM TV**) is a React Native 0.73 app
 ### From a fresh clone
 
 ```bash
-npm install
-cp src/config/hosts.data.example.json src/config/hosts.data.json  # your LAN addresses
-cp src/config/plex.example.ts src/config/plex.ts                  # your Plex library id
-./deploy.sh                                                       # build + install
+npm install                 # also creates the two config files from their examples
+$EDITOR src/config/hosts.data.json   # your LAN addresses
+./deploy.sh                 # build + install
 ```
 
-Both config files are gitignored, and `deploy.sh` tells you if either is missing. See [Configuration](#configuration) for what goes in them.
+`npm install` runs `scripts/setup-config.js`, which copies `hosts.data.example.json` and `plex.example.ts` into place as the gitignored `hosts.data.json` and `plex.ts` — but only when they do not already exist, so it never overwrites your values. That means a clean clone typechecks, lints and passes its tests immediately; the placeholder addresses just do not point at a real Plex server, and `deploy.sh` refuses to build against them. Run it again any time with `npm run setup`.
+
+See [Configuration](#configuration) for what goes in them.
+
+Requires Node 18-20 and Java 17 — both are version *ceilings*: the React Native 0.73 CLI breaks on Node 21+, and Gradle 8.x will not build with a newer JDK. `deploy.sh` finds a qualifying Node and JDK itself if the ones on your PATH do not qualify, and tells you what to install if it cannot.
 
 New here? **[QUICKSTART.md](QUICKSTART.md)** walks the whole path from clone to music on the TV. This README is the reference.
 
@@ -290,7 +293,7 @@ The six library tabs (Artists, Albums, Recent, Playlists, Collections, Search) a
 ./deploy.sh --help
 ```
 
-The script pins the toolchain that actually works together (Node 20, Java 17, the Android SDK), then:
+The script first settles the toolchain that actually works together (Node 18-20, Java 17, the Android SDK). An inherited `JAVA_HOME` or `node` is used when its version qualifies and replaced when it does not — a developer machine usually has something newer installed, and both constraints are ceilings — then Homebrew, the stock macOS/Linux SDK paths, and macOS's `java_home` are searched. A preflight step reports everything missing at once, with the fix for each, before the first slow step. Then:
 
 1. **Module shadowing guard**: fails if any `.json`/`.js` in `src/` shadows a same-named `.ts`. Runs even under `--no-check`, because it is a build correctness problem rather than a test.
 2. **Checks** (unless `--no-check`): `npx tsc --noEmit`, then `npx jest --silent`.
@@ -347,6 +350,8 @@ src/
   hooks/               album art resolution, accent extraction, inactivity timer
   store/               zustand stores for the device and the player, with AsyncStorage
   config/              hosts, plex, display
+scripts/
+  setup-config.js      creates the gitignored config from the examples on npm install
 android/app/src/main/java/com/wymtv/
   MainActivity.kt      remote key interception, emits WiiMNavKey / WiiMRemoteKey
   WakeControlModule.kt keepAwake, restartApp, exitApp

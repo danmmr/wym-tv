@@ -476,19 +476,26 @@ export default function BrowseScreen({navigation, route}: any) {
     setClient(wiimClient);
     clientRef.current = wiimClient;
     loadData(wiimClient);
-    // Only the tab being landed on is loaded here. Recent, Playlists and
-    // Collections used to fetch at mount too — ~150 KB of JSON parsed on the JS
-    // thread, plus a state update each re-rendering this whole screen, all
-    // while the first D-pad presses are trying to get through. They load on
-    // first entry to their tab instead; each is a single sub-200 ms request.
+    // Load order is deliberate, and it is about what is ON SCREEN.
     //
-    // The full catalog still prefetches, because Search and Artists both need
-    // it and it is usually just a ~30 ms fingerprint check plus a read of the
-    // AsyncStorage copy. Chained AFTER the album grid rather than fired
-    // alongside it: on a cold cache it is several concurrent page requests, and
-    // the tab actually on screen should not queue behind them. loadAlbums
-    // swallows its own errors, so this always runs.
-    loadAlbums().then(loadLibrary);
+    // The album grid goes first and alone: it is the landing tab, and nothing
+    // else should compete with painting it. Firing the other four loads
+    // alongside it (as this once did) put ~150 KB of extra JSON parsing and
+    // four re-renders of this whole screen in front of the first paint.
+    //
+    // Everything else is warmed AFTER that paint, sequentially so each await
+    // yields the JS thread rather than parsing back to back. Warming matters:
+    // with these loading only on first entry to their tab, every tab visited
+    // in the first seconds showed a spinner instead of content, which is the
+    // "changing tabs is laggy" complaint. The small ones come first because
+    // they are cheap and finish quickly; the full catalog is last because it
+    // is by far the heaviest and only Artists and Search need it.
+    loadAlbums().then(async () => {
+      await loadRecent();
+      await loadPlaylists();
+      await loadCollections();
+      loadLibrary();
+    });
     // Runs when the selected device changes. navigation is stable and listing it
     // would re-run the whole Plex load.
     // eslint-disable-next-line react-hooks/exhaustive-deps

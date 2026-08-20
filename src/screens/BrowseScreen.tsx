@@ -271,7 +271,7 @@ export default function BrowseScreen({navigation, route}: any) {
   const [searchResIdx, setSearchResIdxState] = useState(0);
 
   // Focus cursor
-  const [zone, setZone] = useState<Zone>('content');
+  const [zone, setZoneState] = useState<Zone>('content');
   const [index, setIndex] = useState(0);
   const listRef = useRef<FlatList<PlexAlbum>>(null);
   const recentListRef = useRef<FlatList<PlexAlbum>>(null);
@@ -312,9 +312,6 @@ export default function BrowseScreen({navigation, route}: any) {
   const filteredSearchRef = useRef<PlexAlbum[]>([]);
   const searchResTopRef = useRef(0);
   const searchResultsListRef = useRef<FlatList<PlexAlbum>>(null);
-  useEffect(() => {
-    zoneRef.current = zone;
-  }, [zone]);
   useEffect(() => {
     idxRef.current = index;
   }, [index]);
@@ -391,6 +388,61 @@ export default function BrowseScreen({navigation, route}: any) {
   const setKb = (row: number, col: number) => {
     kbPosRef.current = {row, col};
     setKbPos({row, col});
+  };
+
+  // Zone changes must reach the ref SYNCHRONOUSLY. onNav reads zoneRef at the
+  // top of every press to decide whether the key means "move the grid cursor"
+  // or "switch tabs". zoneRef used to be synced in an effect, which runs after
+  // React commits — so a press arriving right after 'left' still saw
+  // zone === 'content' and was routed to the grid instead of the tab bar.
+  //
+  // That is the "cannot change tabs while the tab is loading" symptom: while a
+  // tab's load occupies the JS thread the commit is late, the window widens,
+  // and presses meant for the tab bar silently move the album cursor instead.
+  // Measured before this change: four 'right' presses from Albums landed on
+  // Collections, not Search — one press misrouted.
+  // Debounced per-tab loading. Cleared on unmount so a switch made just before
+  // leaving Browse cannot fire into an unmounted screen.
+  const tabLoadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const TAB_LOAD_DELAY = 250;
+
+  const loadForTab = (t: string) => {
+    // Artists and Search both need the full catalog.
+    if (t === 'artists' || t === 'search') {
+      loadLibrary();
+    } else if (t === 'recent') {
+      loadRecent();
+    } else if (t === 'playlists') {
+      loadPlaylists();
+    } else if (t === 'collections') {
+      loadCollections();
+    }
+  };
+
+  // No argument on purpose: switchTab has already written tabRef, and by the
+  // time this fires more presses may have moved on. The ref is the truth.
+  const scheduleTabLoad = () => {
+    if (tabLoadTimerRef.current) {
+      clearTimeout(tabLoadTimerRef.current);
+    }
+    tabLoadTimerRef.current = setTimeout(() => {
+      tabLoadTimerRef.current = null;
+      loadForTab(tabRef.current);
+    }, TAB_LOAD_DELAY);
+  };
+
+  useEffect(
+    () => () => {
+      if (tabLoadTimerRef.current) {
+        clearTimeout(tabLoadTimerRef.current);
+      }
+    },
+    [],
+  );
+
+  const setZone = (z: Zone) => {
+    zoneRef.current = z;
+    setZoneState(z);
   };
 
   const setRecentZone = (z: 'shuffle' | 'grid') => {
@@ -1108,16 +1160,20 @@ export default function BrowseScreen({navigation, route}: any) {
       const switchTab = (nextTab: string) => {
         setActiveTab(nextTab);
         tabRef.current = nextTab;
-        // Artists and Search need the full catalog; fetch it on first entry.
-        if (nextTab === 'artists' || nextTab === 'search') {
-          loadLibrary();
-        } else if (nextTab === 'recent') {
-          loadRecent();
-        } else if (nextTab === 'playlists') {
-          loadPlaylists();
-        } else if (nextTab === 'collections') {
-          loadCollections();
-        }
+        // Load the tab you SETTLE on, not every tab you pass through.
+        //
+        // This used to fire the tab's loader inline, on the keypress. Walking
+        // the bar therefore started a Plex request, a JSON parse and a large
+        // setState for every tab crossed — on the JS thread, in the same tick
+        // as the press. While that ran, the next press could not be serviced,
+        // which is exactly "you cannot change tabs while that tab is loading".
+        // Passing through four tabs paid for four loads to reach one.
+        //
+        // Deferring by a beat costs nothing when you stop on a tab and saves
+        // all of it when you are travelling. loadLibrary/loadRecent and friends
+        // are individually idempotent, so a settled tab that is already loaded
+        // still does nothing.
+        scheduleTabLoad();
         setIndex(0);
         idxRef.current = 0;
         topRowRef.current = 0;

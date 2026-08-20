@@ -32,7 +32,10 @@ describe('trackArtist', () => {
 
   it('uses the per-track artist on a compilation', () => {
     expect(
-      trackArtist({grandparentTitle: 'Various Artists', originalTitle: 'Sugar'}),
+      trackArtist({
+        grandparentTitle: 'Various Artists',
+        originalTitle: 'Sugar',
+      }),
     ).toBe('Sugar');
   });
 
@@ -43,7 +46,10 @@ describe('trackArtist', () => {
       trackArtist({grandparentTitle: 'Various', originalTitle: 'Slim Moon'}),
     ).toBe('Slim Moon');
     expect(
-      trackArtist({grandparentTitle: 'various artist', originalTitle: 'Gossip'}),
+      trackArtist({
+        grandparentTitle: 'various artist',
+        originalTitle: 'Gossip',
+      }),
     ).toBe('Gossip');
   });
 

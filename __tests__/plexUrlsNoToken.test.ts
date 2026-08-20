@@ -21,7 +21,9 @@ describe('streamUrl without a token', () => {
   });
 
   it('never mentions the token parameter', () => {
-    expect(streamUrl('/library/parts/1/2/f.flac')).not.toContain('X-Plex-Token');
+    expect(streamUrl('/library/parts/1/2/f.flac')).not.toContain(
+      'X-Plex-Token',
+    );
   });
 });
 

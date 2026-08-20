@@ -1,13 +1,6 @@
 import React, {useCallback, useEffect, useRef, useState} from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  FlatList,
-  DeviceEventEmitter,
-  NativeModules,
-  BackHandler,
-} from 'react-native';
+import {View, Text, StyleSheet, FlatList, BackHandler} from 'react-native';
+import {captureDpad, subscribeNav} from '../nav/dpad';
 import {useFocusEffect} from '@react-navigation/native';
 import {useDeviceStore} from '../store/deviceStore';
 import {WiiMClient, QueueItem, queueDisplayName} from '../api/wiim';
@@ -141,8 +134,8 @@ export default function QueueScreen({navigation}: any) {
 
   useFocusEffect(
     useCallback(() => {
-      NativeModules.RemoteControl?.setCaptureDpad(true);
-      const sub = DeviceEventEmitter.addListener('WiiMNavKey', (k: string) => {
+      captureDpad();
+      const sub = subscribeNav((k: string) => {
         const f = focusRef.current;
         const n = itemsRef.current.length;
         if (k === 'up') {
@@ -177,7 +170,7 @@ export default function QueueScreen({navigation}: any) {
         return true;
       });
       return () => {
-        sub.remove();
+        sub();
         back.remove();
       };
     }, [navigation]),

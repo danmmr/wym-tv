@@ -11,9 +11,15 @@ import com.facebook.react.modules.core.DeviceEventManagerModule
 class MainActivity : ReactActivity() {
 
   companion object {
-    // When true, the Now Playing screen owns D-pad input (JS renders its own
-    // focus cursor). Toggled from JS via the RemoteControl native module.
-    @Volatile var captureDpad = false
+    // When true, the app owns D-pad input (JS renders its own focus cursor).
+    // Toggled from JS via the RemoteControl native module.
+    //
+    // Starts TRUE. It used to start false and was only turned on once a screen
+    // reached its focus effect, so every press between process start and the
+    // first render fell through to native focus — which draws no highlight on
+    // Fire OS — and looked like a dead remote. Nothing ever sets it back to
+    // false, so "off" only described the moments before JS was ready to listen.
+    @Volatile var captureDpad = true
   }
 
   /**

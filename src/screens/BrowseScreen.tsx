@@ -7,9 +7,8 @@ import {
   Image,
   Dimensions,
   ActivityIndicator,
-  DeviceEventEmitter,
-  NativeModules,
 } from 'react-native';
+import {captureDpad, subscribeNav} from '../nav/dpad';
 import {useFocusEffect} from '@react-navigation/native';
 import {useDeviceStore} from '../store/deviceStore';
 import {WiiMClient} from '../api/wiim';
@@ -425,18 +424,18 @@ export default function BrowseScreen({navigation, route}: any) {
     setClient(wiimClient);
     clientRef.current = wiimClient;
     loadData(wiimClient);
-    loadRecent();
-    loadPlaylists();
-    loadCollections();
-    // Prefetch the full catalog in the background so arrowing over to Search or
-    // Artists finds it already in hand instead of starting a load. Usually a
-    // ~30 ms fingerprint check plus a read of the AsyncStorage copy; the paged
-    // fetch only happens when the library actually changed.
+    // Only the tab being landed on is loaded here. Recent, Playlists and
+    // Collections used to fetch at mount too — ~150 KB of JSON parsed on the JS
+    // thread, plus a state update each re-rendering this whole screen, all
+    // while the first D-pad presses are trying to get through. They load on
+    // first entry to their tab instead; each is a single sub-200 ms request.
     //
-    // Chained AFTER the album grid rather than fired alongside it: on a cold
-    // cache this is several concurrent page requests, and the tab the user is
-    // actually looking at should not queue behind them. loadAlbums swallows its
-    // own errors, so this always runs.
+    // The full catalog still prefetches, because Search and Artists both need
+    // it and it is usually just a ~30 ms fingerprint check plus a read of the
+    // AsyncStorage copy. Chained AFTER the album grid rather than fired
+    // alongside it: on a cold cache it is several concurrent page requests, and
+    // the tab actually on screen should not queue behind them. loadAlbums
+    // swallows its own errors, so this always runs.
     loadAlbums().then(loadLibrary);
     // Runs when the selected device changes. navigation is stable and listing it
     // would re-run the whole Plex load.
@@ -446,7 +445,10 @@ export default function BrowseScreen({navigation, route}: any) {
   // Not cached: playlists are edited outside the app, so reopening Browse
   // should reflect edits. One small request, unlike the album catalog.
   const loadPlaylists = async () => {
-    setPlaylistsLoading(true);
+    // Spinner only when there is nothing to show. These now run on every entry
+    // to their tab, and blanking a list that is already rendered to re-fetch
+    // the same thing reads as a slower app, not a fresher one.
+    setPlaylistsLoading(playlistsRef.current.length === 0);
     try {
       const list = await getPlaylists();
       setPlaylists(list);
@@ -462,7 +464,7 @@ export default function BrowseScreen({navigation, route}: any) {
   // server are current every time Browse opens. The albums INSIDE a collection
   // are the expensive part, and those are fetched on drill-in (and cached).
   const loadCollections = async () => {
-    setCollectionsLoading(true);
+    setCollectionsLoading(collectionsRef.current.length === 0);
     try {
       const list = await getCollections();
       setCollections(list);
@@ -475,7 +477,7 @@ export default function BrowseScreen({navigation, route}: any) {
   };
 
   const loadRecent = async () => {
-    setRecentLoading(true);
+    setRecentLoading(recentAlbumsRef.current.length === 0);
     try {
       const list = await getRecentlyAddedAlbums(100);
       setRecentAlbums(list);
@@ -1109,6 +1111,12 @@ export default function BrowseScreen({navigation, route}: any) {
         // Artists and Search need the full catalog; fetch it on first entry.
         if (nextTab === 'artists' || nextTab === 'search') {
           loadLibrary();
+        } else if (nextTab === 'recent') {
+          loadRecent();
+        } else if (nextTab === 'playlists') {
+          loadPlaylists();
+        } else if (nextTab === 'collections') {
+          loadCollections();
         }
         setIndex(0);
         idxRef.current = 0;
@@ -1233,9 +1241,8 @@ export default function BrowseScreen({navigation, route}: any) {
   // Capture the D-pad while focused (consistent with NowPlayingScreen).
   useFocusEffect(
     useCallback(() => {
-      NativeModules.RemoteControl?.setCaptureDpad(true);
-      const sub = DeviceEventEmitter.addListener('WiiMNavKey', onNav);
-      return () => sub.remove();
+      captureDpad();
+      return subscribeNav(onNav);
       // The D-pad listener is registered ONCE; onNav is re-created each render
       // and listing it would tear down and re-add the listener continuously.
       // eslint-disable-next-line react-hooks/exhaustive-deps

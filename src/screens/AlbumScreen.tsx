@@ -5,10 +5,9 @@ import {
   Image,
   StyleSheet,
   FlatList,
-  DeviceEventEmitter,
-  NativeModules,
   BackHandler,
 } from 'react-native';
+import {captureDpad, subscribeNav} from '../nav/dpad';
 import {useFocusEffect} from '@react-navigation/native';
 import {useDeviceStore} from '../store/deviceStore';
 import {usePlayerStore} from '../store/playerStore';
@@ -119,8 +118,8 @@ export default function AlbumScreen({route, navigation}: any) {
 
   useFocusEffect(
     useCallback(() => {
-      NativeModules.RemoteControl?.setCaptureDpad(true);
-      const sub = DeviceEventEmitter.addListener('WiiMNavKey', (k: string) => {
+      captureDpad();
+      const sub = subscribeNav((k: string) => {
         const f = focusRef.current;
         const n = tracksRef.current.length;
         if (k === 'up') {
@@ -144,7 +143,7 @@ export default function AlbumScreen({route, navigation}: any) {
         return true;
       });
       return () => {
-        sub.remove();
+        sub();
         back.remove();
       };
       // The D-pad listener is registered ONCE and reads live values through

@@ -7,9 +7,8 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   TextInput,
-  DeviceEventEmitter,
-  NativeModules,
 } from 'react-native';
+import {captureDpad, subscribeNav} from '../nav/dpad';
 import {useFocusEffect} from '@react-navigation/native';
 import {useDeviceStore} from '../store/deviceStore';
 import {DeviceDiscovery} from '../api/discovery';
@@ -130,9 +129,9 @@ export default function DiscoveryScreen({navigation}: any) {
   // Own the D-pad while this screen is focused; render a visible focus cursor.
   useFocusEffect(
     useCallback(() => {
-      NativeModules.RemoteControl?.setCaptureDpad(true);
+      captureDpad();
       setFocusIdx(i => Math.min(i, itemsRef.current.length - 1));
-      const sub = DeviceEventEmitter.addListener('WiiMNavKey', (k: string) => {
+      const sub = subscribeNav((k: string) => {
         const len = itemsRef.current.length;
         if (k === 'up') {
           setFocusIdx(i => Math.max(0, i - 1));
@@ -145,7 +144,7 @@ export default function DiscoveryScreen({navigation}: any) {
       // Don't unset capture on blur — the next screen sets what it needs on
       // focus (avoids a focus/blur ordering race on the shared flag).
       return () => {
-        sub.remove();
+        sub();
       };
       // The D-pad listener is registered ONCE and reads live values through
       // refs.

@@ -5,9 +5,9 @@ import {
   StyleSheet,
   TouchableOpacity,
   NativeModules,
-  DeviceEventEmitter,
   Alert,
 } from 'react-native';
+import {captureDpad, subscribeNav} from '../nav/dpad';
 import {useFocusEffect} from '@react-navigation/native';
 import {useDeviceStore} from '../store/deviceStore';
 import {usePlayerStore} from '../store/playerStore';
@@ -59,8 +59,8 @@ export default function SettingsScreen({navigation}: any) {
   // Alert dialogs get their own window, so D-pad works natively inside them.
   useFocusEffect(
     useCallback(() => {
-      NativeModules.RemoteControl?.setCaptureDpad(true);
-      const sub = DeviceEventEmitter.addListener('WiiMNavKey', (k: string) => {
+      captureDpad();
+      const sub = subscribeNav((k: string) => {
         const idx = focusIdxRef.current;
         if (k === 'up') {
           setFocus(Math.max(0, idx - 1));
@@ -70,7 +70,7 @@ export default function SettingsScreen({navigation}: any) {
           activate(ITEMS[idx]);
         }
       });
-      return () => sub.remove();
+      return sub;
       // The D-pad listener is registered ONCE and reads live values through
       // refs.
       // eslint-disable-next-line react-hooks/exhaustive-deps

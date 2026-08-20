@@ -6,9 +6,9 @@ import {
   TouchableOpacity,
   Image,
   DeviceEventEmitter,
-  NativeModules,
   BackHandler,
 } from 'react-native';
+import {captureDpad, subscribeNav} from '../nav/dpad';
 import {useFocusEffect} from '@react-navigation/native';
 
 // 2D control grid for D-pad navigation: left/right within a row, up/down
@@ -553,59 +553,56 @@ export default function NowPlayingScreen({navigation}: any) {
   // the D-pad at once.
   useFocusEffect(
     useCallback(() => {
-      NativeModules.RemoteControl?.setCaptureDpad(true);
+      captureDpad();
 
-      const navSub = DeviceEventEmitter.addListener(
-        'WiiMNavKey',
-        (k: string) => {
-          if (showArtFrameRef.current) {
-            exitArtFrame(); // any key dismisses the art frame
-            return;
-          }
-          if (showScreensaverRef.current) {
-            // While the screensaver is up, each D-pad direction selects a visualizer
-            // (matches VISUALIZERS order: plasma, flow, starfield, metaball).
-            // OK/center and BACK dismiss it; the menu/options button toggles the
-            // album-art pulse. Any other key also dismisses.
-            if (k === 'left') {
-              setVizIndex(0); // plasma
-            } else if (k === 'right') {
-              setVizIndex(1); // flow
-            } else if (k === 'up') {
-              setVizIndex(2); // starfield / warp tunnel
-            } else if (k === 'down') {
-              setVizIndex(3); // metaball / lava lamp
-            } else if (k === 'select') {
-              handleScreensaverExit(); // OK / center returns to Now Playing
-            } else if (k === 'menu') {
-              setShowProgressRing(p => !p); // menu button toggles the time-left ring
-            } else {
-              handleScreensaverExit();
-            }
-            return;
-          }
-          resetInactivityTimer();
-          const {row, col} = focusPosRef.current;
+      const navSub = subscribeNav((k: string) => {
+        if (showArtFrameRef.current) {
+          exitArtFrame(); // any key dismisses the art frame
+          return;
+        }
+        if (showScreensaverRef.current) {
+          // While the screensaver is up, each D-pad direction selects a visualizer
+          // (matches VISUALIZERS order: plasma, flow, starfield, metaball).
+          // OK/center and BACK dismiss it; the menu/options button toggles the
+          // album-art pulse. Any other key also dismisses.
           if (k === 'left') {
-            setFocusCol(Math.max(0, col - 1));
+            setVizIndex(0); // plasma
           } else if (k === 'right') {
-            setFocusCol(Math.min(ROWS[row].length - 1, col + 1));
+            setVizIndex(1); // flow
           } else if (k === 'up') {
-            const nr = Math.max(0, row - 1);
-            setFocusRow(nr);
-            setFocusCol(c => Math.min(c, ROWS[nr].length - 1));
+            setVizIndex(2); // starfield / warp tunnel
           } else if (k === 'down') {
-            const nr = Math.min(ROWS.length - 1, row + 1);
-            setFocusRow(nr);
-            setFocusCol(c => Math.min(c, ROWS[nr].length - 1));
+            setVizIndex(3); // metaball / lava lamp
           } else if (k === 'select') {
-            const {row: r, col: c} = focusPosRef.current;
-            activate(ROWS[r][c]);
+            handleScreensaverExit(); // OK / center returns to Now Playing
           } else if (k === 'menu') {
-            enterArtFrame(); // the ☰/options button opens the digital art frame
+            setShowProgressRing(p => !p); // menu button toggles the time-left ring
+          } else {
+            handleScreensaverExit();
           }
-        },
-      );
+          return;
+        }
+        resetInactivityTimer();
+        const {row, col} = focusPosRef.current;
+        if (k === 'left') {
+          setFocusCol(Math.max(0, col - 1));
+        } else if (k === 'right') {
+          setFocusCol(Math.min(ROWS[row].length - 1, col + 1));
+        } else if (k === 'up') {
+          const nr = Math.max(0, row - 1);
+          setFocusRow(nr);
+          setFocusCol(c => Math.min(c, ROWS[nr].length - 1));
+        } else if (k === 'down') {
+          const nr = Math.min(ROWS.length - 1, row + 1);
+          setFocusRow(nr);
+          setFocusCol(c => Math.min(c, ROWS[nr].length - 1));
+        } else if (k === 'select') {
+          const {row: r, col: c} = focusPosRef.current;
+          activate(ROWS[r][c]);
+        } else if (k === 'menu') {
+          enterArtFrame(); // the ☰/options button opens the digital art frame
+        }
+      });
 
       const mediaSub = DeviceEventEmitter.addListener(
         'WiiMRemoteKey',
@@ -646,7 +643,7 @@ export default function NowPlayingScreen({navigation}: any) {
       // screen gains focus sets the desired value on focus, which avoids a race
       // where the old screen's blur cleanup runs after the new screen's focus.
       return () => {
-        navSub.remove();
+        navSub();
         mediaSub.remove();
         backSub.remove();
       };

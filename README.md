@@ -6,7 +6,7 @@ WyM TV (package `com.wiimtvapp`, display name **WyM TV**) is a React Native 0.73
 
 - Deploy: `./deploy.sh`
 - Requires: a WiiM/LinkPlay device, a Plex Media Server with a music library, and a Fire TV Stick with ADB debugging enabled, all on the same LAN.
-- License: [MIT](LICENSE)
+- License: [MIT](LICENSE) (code) · [CC BY 4.0](src/assets/LICENSE) (the landing photo)
 
 ### From a fresh clone
 
@@ -361,4 +361,10 @@ Two conventions are load-bearing throughout the screens:
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+Code is MIT. See [LICENSE](LICENSE).
+
+`src/assets/landing.jpg` — the photograph on the Browse landing page — is not
+code and is licensed separately, under
+[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/): reuse and adaptation
+are fine, including commercially, as long as you credit the author. See
+[src/assets/LICENSE](src/assets/LICENSE).

@@ -1,0 +1,93 @@
+# Typecheck, lint and test on every push and PR, then prove the Android release
+# APK still builds and still declares the identity it is supposed to.
+#
+# The build job exists because the checks above cannot see the half of this
+# project that breaks most quietly. A rename, a manifest edit or a Kotlin
+# package move compiles fine in TypeScript and passes every jest test while
+# producing an APK that installs as the wrong application id — which, once
+# published, is not a fixable mistake. So the job asserts the identity rather
+# than merely asserting that gradle exited 0.
+#
+# Note there is no config in CI and none is needed: npm ci runs the postinstall
+# setup script, which materializes src/config/hosts.data.json and plex.ts from
+# their tracked examples. The placeholder addresses reach nothing.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    name: Typecheck, lint and test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Node 20 is a ceiling, not a floor: the React Native 0.73 CLI breaks on
+      # 21+. .nvmrc holds the same number so local and CI cannot drift.
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm test -- --ci
+
+  android:
+    name: Build release APK
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      # Java 17 is also a ceiling — Gradle 8.3 will not build on a newer JDK.
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - run: npm ci
+
+      - name: Build
+        working-directory: android
+        run: ./gradlew assembleRelease --no-daemon
+
+      # The APK is signed with the checked-in react-native debug keystore, so
+      # this is a build artifact for inspection, never something to publish.
+      - name: Verify the APK's identity
+        run: |
+          set -euo pipefail
+          APK=android/app/build/outputs/apk/release/app-release.apk
+          AAPT="$(ls -d "$ANDROID_HOME"/build-tools/*/ | sort -V | tail -1)aapt"
+          BADGING="$("$AAPT" dump badging "$APK")"
+          echo "$BADGING" | grep -E "^package|^launchable-activity" || true
+
+          echo "$BADGING" | grep -q "package: name='com.wymtv'" \
+            || { echo "::error::application id is not com.wymtv"; exit 1; }
+          echo "$BADGING" | grep -q "launchable-activity: name='com.wymtv.MainActivity'" \
+            || { echo "::error::launchable activity is not com.wymtv.MainActivity"; exit 1; }
+          echo "$BADGING" | grep -q "application-label:'WyM TV'" \
+            || { echo "::error::application label is not 'WyM TV'"; exit 1; }
+
+          # A Fire TV build must declare a leanback launcher entry, or the stick
+          # installs it and then shows it nowhere.
+          echo "$BADGING" | grep -q "leanback-launchable-activity" \
+            || { echo "::error::no leanback launcher activity — it would not appear on Fire TV"; exit 1; }
+
+          echo "identity OK"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: app-release-apk
+          path: android/app/build/outputs/apk/release/app-release.apk
+          if-no-files-found: error

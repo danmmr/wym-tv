@@ -37,12 +37,16 @@ for (const [exampleName, targetName] of PAIRS) {
     continue;
   }
   if (!fs.existsSync(example)) {
-    console.warn(`setup-config: ${exampleName} is missing, cannot create ${targetName}`);
+    console.warn(
+      `setup-config: ${exampleName} is missing, cannot create ${targetName}`,
+    );
     continue;
   }
 
   fs.copyFileSync(example, target);
-  console.log(`setup-config: created src/config/${targetName} from ${exampleName}`);
+  console.log(
+    `setup-config: created src/config/${targetName} from ${exampleName}`,
+  );
   created += 1;
 }
 

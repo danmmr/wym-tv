@@ -222,6 +222,30 @@ async function fetchAlbumPage(page: number): Promise<{
   };
 }
 
+// Populate the in-memory catalog from disk IF the saved copy is current, and
+// otherwise do nothing. The point is what it does NOT do: it never falls back
+// to paging the library, so a caller can try it on a hot path without risking
+// a multi-second fetch.
+//
+// The album grid uses this. getAlbumSample() samples from albumCache when it is
+// populated, so a warm cache means the landing tab is derived in memory with no
+// Plex request at all — instead of the ~3.1s "Loading albums…" measured on
+// device. A cold cache returns null and the caller takes its normal path.
+export async function warmCatalogFromDisk(): Promise<PlexAlbum[] | null> {
+  if (albumCache) {
+    return albumCache;
+  }
+  const [fingerprint, cached] = await Promise.all([
+    currentFingerprint(),
+    readCachedCatalog(),
+  ]);
+  if (cached && (fingerprint === null || cached.fingerprint === fingerprint)) {
+    albumCache = cached.albums;
+    return albumCache;
+  }
+  return null;
+}
+
 // In-flight guard. Browse prefetches the catalog on mount while a tab entry can
 // ask for it too; without this, two overlapping callers would each page the
 // whole library, since albumCache is only set once the last page lands.

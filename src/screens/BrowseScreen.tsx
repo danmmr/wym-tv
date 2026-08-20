@@ -209,6 +209,22 @@ export default function BrowseScreen({navigation, route}: any) {
   const initialTab: string =
     TABS.indexOf(requestedTab) === -1 ? 'albums' : requestedTab;
   const [activeTab, setActiveTab] = useState(initialTab);
+  // The landing page. Browse used to open straight onto the album grid, which
+  // meant the first thing on screen was ~3.1s of "Loading albums…" — measured
+  // on device, and paid on EVERY open, because the app fully exits whenever it
+  // is backgrounded. The landing page needs no data at all, so Browse paints
+  // and accepts input immediately while every tab warms behind it.
+  //
+  // A deep link (the Now Playing "Recently Added" button) skips it: that press
+  // already named a destination, so showing a chooser would just be in the way.
+  const [showLanding, setShowLandingState] = useState(
+    !route?.params?.initialTab,
+  );
+  const showLandingRef = useRef(!route?.params?.initialTab);
+  const setShowLanding = (v: boolean) => {
+    showLandingRef.current = v;
+    setShowLandingState(v);
+  };
   const [presets, setPresets] = useState<any[]>([]);
   const [inputSources, setInputSources] = useState<any[]>([]);
   const [, setClient] = useState<WiiMClient | null>(null);
@@ -271,7 +287,11 @@ export default function BrowseScreen({navigation, route}: any) {
   const [searchResIdx, setSearchResIdxState] = useState(0);
 
   // Focus cursor
-  const [zone, setZoneState] = useState<Zone>('content');
+  // With the landing page up there is no content to point at, so focus starts
+  // on the tab bar and the very first press already means something.
+  const [zone, setZoneState] = useState<Zone>(
+    route?.params?.initialTab ? 'content' : 'tabs',
+  );
   const [index, setIndex] = useState(0);
   const listRef = useRef<FlatList<PlexAlbum>>(null);
   const recentListRef = useRef<FlatList<PlexAlbum>>(null);
@@ -286,7 +306,7 @@ export default function BrowseScreen({navigation, route}: any) {
   const clientRef = useRef<WiiMClient | null>(null);
 
   // Refs mirrored for the key handler (registered once, reads live values).
-  const zoneRef = useRef<Zone>('content');
+  const zoneRef = useRef<Zone>(route?.params?.initialTab ? 'content' : 'tabs');
   const idxRef = useRef(0);
   const tabRef = useRef(initialTab);
   const albumsRef = useRef<PlexAlbum[]>([]);
@@ -490,12 +510,17 @@ export default function BrowseScreen({navigation, route}: any) {
     // "changing tabs is laggy" complaint. The small ones come first because
     // they are cheap and finish quickly; the full catalog is last because it
     // is by far the heaviest and only Artists and Search need it.
-    loadAlbums().then(async () => {
+    // Nothing here is on the critical path any more — the landing page is
+    // already on screen and taking input — so every tab is warmed up front,
+    // sequentially so each await yields the JS thread rather than parsing back
+    // to back. Whichever tab he picks should already have its data.
+    (async () => {
+      await loadAlbums();
       await loadRecent();
       await loadPlaylists();
       await loadCollections();
       loadLibrary();
-    });
+    })();
     // Runs when the selected device changes. navigation is stable and listing it
     // would re-run the whole Plex load.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1165,6 +1190,7 @@ export default function BrowseScreen({navigation, route}: any) {
     if (z === 'tabs') {
       const ti = TABS.indexOf(tabRef.current);
       const switchTab = (nextTab: string) => {
+        setShowLanding(false);
         setActiveTab(nextTab);
         tabRef.current = nextTab;
         // Load the tab you SETTLE on, not every tab you pass through.
@@ -1212,6 +1238,11 @@ export default function BrowseScreen({navigation, route}: any) {
       } else if (k === 'right' && ti < TABS.length - 1) {
         switchTab(TABS[ti + 1]);
       } else if (k === 'down' || k === 'select') {
+        // Committing to the tab that is already highlighted.
+        if (showLandingRef.current) {
+          setShowLanding(false);
+          scheduleTabLoad();
+        }
         setZone('content');
         if (tabRef.current === 'search') {
           setSearchZone('keyboard');
@@ -1587,7 +1618,19 @@ export default function BrowseScreen({navigation, route}: any) {
         {!!statusMsg && <Text style={styles.statusMsg}>{statusMsg}</Text>}
       </View>
 
-      {activeTab === 'albums' ? (
+      {showLanding ? (
+        <View style={styles.landing}>
+          <Image
+            source={require('../assets/landing.jpg')}
+            style={styles.landingArt}
+            resizeMode="contain"
+            fadeDuration={0}
+          />
+          <Text style={styles.landingHint}>
+            ← → choose a section · OK to open
+          </Text>
+        </View>
+      ) : activeTab === 'albums' ? (
         albumsLoading ? (
           <View style={styles.loadingBox}>
             <ActivityIndicator size="large" color="#3b9eff" />
@@ -1706,7 +1749,7 @@ export default function BrowseScreen({navigation, route}: any) {
       {/* MENU is invisible without a prompt, so say so on the tabs that
           actually show albums. The artist roster is its own case: OK opens the
           artist rather than playing, and MENU does nothing there. */}
-      {activeTab === 'artists' && artistView === 'grid' ? (
+      {showLanding ? null : activeTab === 'artists' && artistView === 'grid' ? (
         <Text style={styles.menuHint}>OK: view artist</Text>
       ) : activeTab === 'collections' && collectionView === 'grid' ? (
         <Text style={styles.menuHint}>OK: view collection</Text>
@@ -1818,6 +1861,35 @@ const styles = StyleSheet.create({
   cardArtist: {
     color: '#9aa',
     fontSize: 12,
+  },
+  // The landing body. Deliberately plain: it exists to be instant, so it holds
+  // nothing that needs fetching, measuring or decoding beyond one small bundled
+  // PNG.
+  landing: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#000',
+    // Cancel the screen's horizontal padding so the black runs edge to edge.
+    // The photo is black-backgrounded, so grey margins around it would frame it
+    // as a letterboxed picture instead of letting the subject float.
+    marginHorizontal: -H_PAD,
+    paddingBottom: 12,
+  },
+  // 'contain', never 'cover': the photo is portrait and the panel is landscape,
+  // so filling the screen would crop away most of the subject. Letterboxing is
+  // invisible here because the photo's own background is black and so is this
+  // one — the subject reads as floating on the screen rather than as a photo
+  // with bars. Downscaled at build time to fit this height; a 2000px source
+  // would cost a needless decode on the screen whose whole point is speed.
+  landingArt: {
+    flex: 1,
+    width: '100%',
+  },
+  landingHint: {
+    marginTop: 28,
+    color: '#8a8a8a',
+    fontSize: 20,
   },
   loadingBox: {
     flex: 1,

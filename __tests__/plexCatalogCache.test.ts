@@ -310,4 +310,49 @@ describe('concurrent catalog loads', () => {
   });
 });
 
+describe('warmCatalogFromDisk', () => {
+  it('never pages the library when the cache is cold', async () => {
+    // The whole point: the album grid calls this on its hot path, so it must
+    // not be able to turn into a multi-second fetch.
+    const {plex, get} = loadPlex(server());
+    const out = await plex.warmCatalogFromDisk();
+
+    expect(out).toBeNull();
+    expect(albumUrls(get)).toEqual([]);
+  });
+
+  it('populates the catalog from disk when it is current', async () => {
+    const first = loadPlex(server());
+    await first.plex.loadAllAlbums();
+
+    const second = loadPlex(server());
+    const out = await second.plex.warmCatalogFromDisk();
+
+    expect(out).toHaveLength(TOTAL);
+    expect(albumUrls(second.get)).toEqual([]);
+  });
+
+  it('lets the album grid be sampled without any request', async () => {
+    const first = loadPlex(server());
+    await first.plex.loadAllAlbums();
+
+    // Fresh process: warm from disk, then sample. No /all request may happen.
+    const second = loadPlex(server());
+    await second.plex.warmCatalogFromDisk();
+    const sample = await second.plex.getAlbumSample(3);
+
+    expect(sample).toHaveLength(3);
+    expect(albumUrls(second.get)).toEqual([]);
+  });
+
+  it('returns null rather than stale albums when the library changed', async () => {
+    const first = loadPlex(server());
+    await first.plex.loadAllAlbums();
+
+    const second = loadPlex(server({contentChangedAt: 4127250}));
+    expect(await second.plex.warmCatalogFromDisk()).toBeNull();
+    expect(albumUrls(second.get)).toEqual([]); // still no paging
+  });
+});
+
 export {};

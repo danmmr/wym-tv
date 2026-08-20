@@ -5,6 +5,9 @@
   "scripts": {
     "android": "react-native run-android",
     "lint": "eslint .",
+    "setup": "node scripts/setup-config.js",
+    "postinstall": "node scripts/setup-config.js",
+    "typecheck": "tsc --noEmit",
     "start": "react-native start",
     "test": "jest"
   },
@@ -41,6 +44,7 @@
     "typescript": "5.0.4"
   },
   "engines": {
-    "node": ">=18"
+    "_comment": "React Native 0.73 CLI breaks on Node 21+; deploy.sh pins Node 20.",
+    "node": ">=18 <21"
   }
 }

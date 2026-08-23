@@ -303,18 +303,37 @@ The script first settles the toolchain that actually works together (Node 18-20,
 
 ### Release signing
 
-`assembleRelease` is signed with the stock React Native **debug keystore**,
-committed at `android/app/debug.keystore` with the well-known password
-`android`. This is deliberate — the app is sideloaded onto Fire TV sticks over
-`adb`, never uploaded to a store, and a shared key keeps `install -r` upgrading
-an existing install instead of failing on a signature mismatch.
+`assembleRelease` signs with a real release key **when one is configured**, and
+falls back to the committed stock `debug.keystore` when it is not — so a fresh
+clone still builds without you setting anything up.
 
-Know what it means before you rely on it: the signing key is public, so anyone
-can build an APK that Android will happily install *over* yours as an upgrade.
-That is fine for a device on your own LAN and not fine for anything you
-distribute. If you publish builds, generate your own keystore
-([guide](https://reactnative.dev/docs/signed-apk-android)), keep it out of the
-repo, and point the `release` signing config at it.
+Official releases on the [Releases page](../../releases) are signed with the
+project's own key (`CN=ddls`, RSA 4096). That keystore is not in this repo and
+never will be.
+
+To sign your own builds, generate a keystore and point Gradle at it from
+`~/.gradle/gradle.properties` (outside the repo, so it cannot be committed):
+
+```bash
+keytool -genkeypair -v -keystore ~/.wymtv/my-release.keystore -alias myalias \
+  -keyalg RSA -keysize 4096 -validity 10000
+```
+
+```properties
+WYMTV_RELEASE_STORE_FILE=/Users/you/.wymtv/my-release.keystore
+WYMTV_RELEASE_KEY_ALIAS=myalias
+WYMTV_RELEASE_STORE_PASSWORD=...
+WYMTV_RELEASE_KEY_PASSWORD=...
+```
+
+Back that keystore up. Android identifies an app by its signature, so losing the
+key means no future build can ever upgrade an install — only a fresh install
+after uninstalling, which loses the app's stored state.
+
+Without those properties the build uses the debug key, whose password (`android`)
+is public and committed. That is fine for sideloading to your own devices on your
+own LAN, and not fine for anything you hand to someone else: anyone can build an
+APK that Android will install *over* one signed with it.
 
 Standalone commands:
 

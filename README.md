@@ -301,6 +301,21 @@ The script first settles the toolchain that actually works together (Node 18-20,
 4. **Build**: `./gradlew assembleRelease` (Hermes bundles from current source, so no separate bundle step).
 5. **Deploy**, per stick: `adb connect`, verify the device state is `device` and not `unauthorized`, `install -r`, **`am force-stop`** (required, or `am start` just resumes the old process and the deploy looks like it silently did nothing), `am start`, then poll for a new pid and confirm it changed.
 
+### Release signing
+
+`assembleRelease` is signed with the stock React Native **debug keystore**,
+committed at `android/app/debug.keystore` with the well-known password
+`android`. This is deliberate — the app is sideloaded onto Fire TV sticks over
+`adb`, never uploaded to a store, and a shared key keeps `install -r` upgrading
+an existing install instead of failing on a signature mismatch.
+
+Know what it means before you rely on it: the signing key is public, so anyone
+can build an APK that Android will happily install *over* yours as an upgrade.
+That is fine for a device on your own LAN and not fine for anything you
+distribute. If you publish builds, generate your own keystore
+([guide](https://reactnative.dev/docs/signed-apk-android)), keep it out of the
+repo, and point the `release` signing config at it.
+
 Standalone commands:
 
 ```bash

@@ -1,3 +1,62 @@
+Caveat: this is entirely vibe coded and it was made for me, as existing options did not meet my needs fully. I had no intention of sharing it (which explains some of the quirks) but a friend suggested that I put it out there as open source so that others can build upon it.
+
+So, I have been working on this for a few months (off and on) and initially it was just going to be a way to display on my fire TV what was currently playing on my WIIM device along with some minimal functionality. It escalated quickly from there. As noted above, this was designed solely for me and so, I have it only working with a local Plex Server* (hence another reason to open source) and some items are hard coded (there is a config file). My hope is that someone out there will find this useful as is and that others will vastly improve it. I should also note that this probably works on android TV but have not tested it.
+
+*plex auth is available but not needed if your plex server has been configured to allow LAN access without auth (needed if you want to be able to use your plex server if your internet is down)
+
+Here are key features:
+
+- Begin AI Text:
+
+TL;DR: WyM TV turns a Fire TV Stick into a remote and browser for a WiiM audio device backed by a local Plex music library. The stick doesn't play the audio. It hands the WiiM a queue and the WiiM streams from Plex (closing the app does not interrupt music playing)
+
+Features
+
+- Everything is local
+
+- Browse Artists, Albums, Recently Added, Playlists and Collections on the TV
+
+- Search the full catalog by album or artist
+
+- Feeling Lucky — plays a random album
+
+- Library Radio — random tracks from anywhere in your library
+
+- Deep Cuts — random tracks you've never played
+
+- Recently Added shuffle
+
+- Radio stations auto-refill, so they never run out
+
+- Album button — plays the full album the current track came from
+
+- Track listings, with play-from-any-track
+
+- Live queue view: jump to any track, toggle shuffle
+
+- Correct per-track artists on compilations
+
+- Format details — HI-RES/LOSSLESS badge, codec, bit depth, sample rate, bitrate
+
+- Shader screensaver with four modes, after 2 minutes idle
+
+- Digital art frame, plus a cover-art slideshow when nothing is playing
+
+- UI tints to a color pulled from the current album art
+
+- Exits fully when backgrounded — no CPU, GPU or memory held on the stick
+
+- MIT licensed
+
+Needs a WiiM/LinkPlay device, a Plex server with music, and a Fire TV Stick with ADB debugging, on the same LAN.
+
+- End AI Text 
+
+
+
+
+
+
 # WyM TV
 
 A Fire TV remote and browser for WiiM audio devices, backed by a local Plex music library.

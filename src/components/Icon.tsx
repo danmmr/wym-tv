@@ -47,9 +47,6 @@ const PATHS = {
   // doing all the work and the icons none.
   deepcuts:
     'M3 14.5c1.6 0 1.6-2 3.2-2s1.6 2 3.2 2 1.6-2 3.2-2 1.6 2 3.2 2 1.6-2 3.2-2 1.6 2 3.2 2v2c-1.6 0-1.6-2-3.2-2s-1.6 2-3.2 2-1.6-2-3.2-2-1.6 2-3.2 2-1.6-2-3.2-2-1.6 2-3.2 2zM7 4h1.8v6.6H7zm4.1 2h1.8v4.6h-1.8zm4.1-3H17v7.6h-1.8z',
-  // Digital art frame: a picture in a frame, distinct from the album disc.
-  artframe:
-    'M4 4h16a1 1 0 011 1v14a1 1 0 01-1 1H4a1 1 0 01-1-1V5a1 1 0 011-1zm1 2v12h14V6zm2.5 9.5l3-3.8 2.2 2.7 2.3-3.1 2.5 4.2z',
   album:
     'M12 3a9 9 0 100 18 9 9 0 000-18zm0 2a7 7 0 110 14 7 7 0 010-14zm0 5.2a1.8 1.8 0 100 3.6 1.8 1.8 0 000-3.6z',
   browse: 'M4 5h7v6H4zm9 0h7v6h-7zM4 13h7v6H4zm9 0h7v6h-7z',

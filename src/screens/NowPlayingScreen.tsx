@@ -37,9 +37,9 @@ const ROWS: string[][] = [
 // The overlay's own grid. Same key names as before, so activate() is unchanged
 // and every action behaves exactly as it did — only where you reach it moved.
 const MENU_ROWS: string[][] = [
-  ['lucky', 'queue', 'album', 'recent'],
-  ['libradio', 'deepcuts', 'browse', 'settings'],
-  ['saver', 'artframe'],
+  ['lucky', 'queue', 'album'],
+  ['libradio', 'deepcuts', 'recent'],
+  ['browse', 'settings', 'saver'],
 ];
 
 // Labels and glyphs for the overlay, keyed the same way. Kept beside MENU_ROWS
@@ -54,7 +54,6 @@ const MENU_META: Record<string, {label: string; icon: IconName}> = {
   browse: {label: 'Browse', icon: 'browse'},
   settings: {label: 'Settings', icon: 'settings'},
   saver: {label: 'Screensaver', icon: 'screensaver'},
-  artframe: {label: 'Art Frame', icon: 'artframe'},
 };
 
 // The window is 960x540 dp (1080p at density 320). Vertical space is the scarce
@@ -77,13 +76,20 @@ import {useAccentColor, DEFAULT_ACCENT} from '../hooks/useAccentColor';
 import Screensaver, {VISUALIZERS} from '../components/Screensaver';
 import ArtFrame from '../components/ArtFrame';
 
+// What the screensaver can show. The four shader visualizers plus the digital
+// art frame, which used to be a separate mode entered from the ☰ button and is
+// now simply the fifth thing the saver can be.
+//
+// Five modes do not fit four D-pad directions, so the old "each direction picks
+// a visualizer" mapping is gone: left and right step through this list instead,
+// which is also the only scheme that still works if a sixth is ever added.
+const SAVER_MODES = [...VISUALIZERS, 'artframe'] as const;
+
 export default function NowPlayingScreen({navigation}: any) {
   const selectedDevice = useDeviceStore(s => s.selectedDevice);
   const playerState = usePlayerStore();
   const [, setClient] = useState<WiiMClient | null>(null);
   const [showScreensaver, setShowScreensaver] = useState(false);
-  const [showArtFrame, setShowArtFrame] = useState(false);
-  const showArtFrameRef = useRef(false);
   const [vizIndex, setVizIndex] = useState(0);
   // The screensaver's album art shows a song-progress ring only when asked for
   // — OFF by default, toggled with the menu/options button while the saver is
@@ -180,32 +186,12 @@ export default function NowPlayingScreen({navigation}: any) {
       clearTimeout(inactivityTimerRef.current);
     }
     inactivityTimerRef.current = setTimeout(() => {
-      // Never let the shader screensaver replace the digital art frame while it
-      // is up. exitArtFrame re-arms this timer, so the screensaver still kicks in
-      // normally once the art frame is dismissed.
-      if (showArtFrameRef.current) {
-        return;
-      }
       setShowScreensaver(true);
     }, INACTIVITY_TIMEOUT);
   };
 
   const handleScreensaverExit = () => {
     setShowScreensaver(false);
-    resetInactivityTimer();
-  };
-
-  // Digital art frame: entered manually from the Menu button, dismissed on any
-  // key. Suspend the inactivity timer while it is up so the shader screensaver
-  // does not queue up behind it, and restart it on exit.
-  const enterArtFrame = () => {
-    if (inactivityTimerRef.current) {
-      clearTimeout(inactivityTimerRef.current);
-    }
-    setShowArtFrame(true);
-  };
-  const exitArtFrame = () => {
-    setShowArtFrame(false);
     resetInactivityTimer();
   };
 
@@ -587,9 +573,6 @@ export default function NowPlayingScreen({navigation}: any) {
       case 'saver':
         setShowScreensaver(true);
         break;
-      case 'artframe':
-        enterArtFrame();
-        break;
     }
   };
 
@@ -675,10 +658,6 @@ export default function NowPlayingScreen({navigation}: any) {
     showScreensaverRef.current = showScreensaver;
   }, [showScreensaver]);
 
-  useEffect(() => {
-    showArtFrameRef.current = showArtFrame;
-  }, [showArtFrame]);
-
   // Own the D-pad only while this screen is focused. useFocusEffect runs on
   // focus and cleans up on blur, so Discovery and Now Playing never both grab
   // the D-pad at once.
@@ -687,23 +666,21 @@ export default function NowPlayingScreen({navigation}: any) {
       captureDpad();
 
       const navSub = subscribeNav((k: string) => {
-        if (showArtFrameRef.current) {
-          exitArtFrame(); // any key dismisses the art frame
-          return;
-        }
         if (showScreensaverRef.current) {
-          // While the screensaver is up, each D-pad direction selects a visualizer
-          // (matches VISUALIZERS order: plasma, flow, starfield, metaball).
-          // OK/center and BACK dismiss it; the menu/options button toggles the
-          // album-art pulse. Any other key also dismisses.
+          // Left and right step through SAVER_MODES, wrapping both ways.
+          // OK/center and BACK dismiss; the menu/options button toggles the
+          // album-art progress ring. Any other key also dismisses.
+          //
+          // Up and down are deliberately INERT rather than dismissing. They
+          // used to pick starfield and metaball, so anyone reaching for a
+          // visualizer the old way would otherwise be thrown back to Now
+          // Playing by the fall-through.
           if (k === 'left') {
-            setVizIndex(0); // plasma
+            setVizIndex(i => (i - 1 + SAVER_MODES.length) % SAVER_MODES.length);
           } else if (k === 'right') {
-            setVizIndex(1); // flow
-          } else if (k === 'up') {
-            setVizIndex(2); // starfield / warp tunnel
-          } else if (k === 'down') {
-            setVizIndex(3); // metaball / lava lamp
+            setVizIndex(i => (i + 1) % SAVER_MODES.length);
+          } else if (k === 'up' || k === 'down') {
+            // inert
           } else if (k === 'select') {
             handleScreensaverExit(); // OK / center returns to Now Playing
           } else if (k === 'menu') {
@@ -738,10 +715,6 @@ export default function NowPlayingScreen({navigation}: any) {
       const mediaSub = DeviceEventEmitter.addListener(
         'WiiMRemoteKey',
         (key: string) => {
-          if (showArtFrameRef.current) {
-            exitArtFrame();
-            return;
-          }
           if (showScreensaverRef.current) {
             handleScreensaverExit();
             return;
@@ -761,10 +734,6 @@ export default function NowPlayingScreen({navigation}: any) {
       const backSub = BackHandler.addEventListener('hardwareBackPress', () => {
         if (menuOpenRef.current) {
           closeMenu();
-          return true;
-        }
-        if (showArtFrameRef.current) {
-          exitArtFrame();
           return true;
         }
         if (showScreensaverRef.current) {
@@ -789,15 +758,18 @@ export default function NowPlayingScreen({navigation}: any) {
     }, []),
   );
 
-  if (showArtFrame) {
-    return <ArtFrame />;
-  }
-
   if (showScreensaver) {
+    const mode = SAVER_MODES[vizIndex];
+    // The art frame is a full screen of its own rather than a shader, so it
+    // replaces the Screensaver outright instead of being a visualizer inside
+    // it. The nav handler above still owns the keys either way.
+    if (mode === 'artframe') {
+      return <ArtFrame />;
+    }
     return (
       <Screensaver
         onExit={handleScreensaverExit}
-        visualizer={VISUALIZERS[vizIndex]}
+        visualizer={mode}
         showProgressRing={showProgressRing}
       />
     );

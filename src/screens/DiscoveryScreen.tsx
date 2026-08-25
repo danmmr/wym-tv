@@ -8,6 +8,8 @@ import {
   ActivityIndicator,
   TextInput,
 } from 'react-native';
+import Focusable from '../components/Focusable';
+import {color as theme, radius, type as typeScale} from '../theme';
 import {captureDpad, subscribeNav} from '../nav/dpad';
 import {useFocusEffect} from '@react-navigation/native';
 import {useDeviceStore} from '../store/deviceStore';
@@ -162,17 +164,17 @@ export default function DiscoveryScreen({navigation}: any) {
   );
 
   const renderDevice = ({item}: {item: WiiMDevice}) => (
-    <TouchableOpacity
-      style={[
-        styles.deviceCard,
-        focusedId === item.id && styles.deviceCardFocused,
-      ]}
-      onPress={() => selectDevice(item)}
-      activeOpacity={0.7}>
-      <Text style={styles.deviceName}>{item.name}</Text>
-      <Text style={styles.deviceInfo}>IP: {item.ip}</Text>
-      {item.model && <Text style={styles.deviceModel}>{item.model}</Text>}
-    </TouchableOpacity>
+    <Focusable
+      focused={focusedId === item.id}
+      scale={1.02}
+      ringColor={theme.accentFallback}
+      style={styles.deviceCard}>
+      <TouchableOpacity onPress={() => selectDevice(item)} activeOpacity={0.7}>
+        <Text style={styles.deviceName}>{item.name}</Text>
+        <Text style={styles.deviceInfo}>IP: {item.ip}</Text>
+        {item.model && <Text style={styles.deviceModel}>{item.model}</Text>}
+      </TouchableOpacity>
+    </Focusable>
   );
 
   return (
@@ -218,19 +220,19 @@ export default function DiscoveryScreen({navigation}: any) {
         }}
       />
 
-      <TouchableOpacity
-        style={[
-          styles.scanButton,
-          focusedId === 'scan' && styles.scanButtonFocused,
-        ]}
-        onPress={discoverDevices}
-        disabled={loading}>
-        {loading ? (
-          <ActivityIndicator size="small" color="#1a1a1a" />
-        ) : (
-          <Text style={styles.scanButtonText}>Scan network for more</Text>
-        )}
-      </TouchableOpacity>
+      <Focusable
+        focused={focusedId === 'scan'}
+        scale={1.04}
+        ringColor={theme.accentFallback}
+        style={styles.scanButton}>
+        <TouchableOpacity onPress={discoverDevices} disabled={loading}>
+          {loading ? (
+            <ActivityIndicator size="small" color={theme.textSecondary} />
+          ) : (
+            <Text style={styles.scanButtonText}>Scan network for more</Text>
+          )}
+        </TouchableOpacity>
+      </Focusable>
     </View>
   );
 }
@@ -248,19 +250,14 @@ const styles = StyleSheet.create({
     paddingTop: 12,
     paddingBottom: 96,
   },
-  title: {
-    fontSize: 32,
-    fontWeight: 'bold',
-    color: '#3b9eff',
-    marginBottom: 8,
-  },
+  title: {...typeScale.hero, color: theme.textPrimary, marginBottom: 8},
   manualRow: {
     flexDirection: 'row',
     marginBottom: 8,
   },
   manualInput: {
     flex: 1,
-    backgroundColor: '#2a2a2a',
+    backgroundColor: 'rgba(255,255,255,0.05)',
     color: '#fff',
     fontSize: 16,
     paddingHorizontal: 16,
@@ -269,39 +266,25 @@ const styles = StyleSheet.create({
     marginRight: 10,
   },
   manualButton: {
-    backgroundColor: '#3b9eff',
+    backgroundColor: 'rgba(255,255,255,0.06)',
     paddingHorizontal: 28,
     justifyContent: 'center',
-    borderRadius: 8,
+    borderRadius: radius.md,
   },
-  manualButtonText: {
-    color: '#1a1a1a',
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
+  manualButtonText: {...typeScale.label, color: theme.textSecondary},
   errorText: {
     color: '#ff6666',
     fontSize: 14,
     marginBottom: 8,
   },
   scanButton: {
-    backgroundColor: '#2a2a2a',
-    borderWidth: 3,
-    borderColor: '#3b9eff',
+    backgroundColor: 'rgba(255,255,255,0.06)',
     paddingVertical: 12,
-    borderRadius: 8,
+    borderRadius: radius.md,
     alignItems: 'center',
     marginTop: 12,
   },
-  scanButtonFocused: {
-    borderColor: '#ffffff',
-    backgroundColor: '#16315a',
-  },
-  scanButtonText: {
-    color: '#3b9eff',
-    fontSize: 15,
-    fontWeight: 'bold',
-  },
+  scanButtonText: {...typeScale.label, color: theme.textSecondary},
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
@@ -316,37 +299,25 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   deviceCard: {
-    backgroundColor: '#2a2a2a',
-    borderRadius: 8,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderRadius: radius.md,
     // Fixed height (border-box) so getItemLayout and the scroll maths agree.
-    // 116 - 32 padding - 6 border leaves 78dp for the three text lines (~70dp).
+    // The 3dp focus border is gone, which frees the 6dp it used to reserve —
+    // the height is unchanged so those maths do not move.
     height: CARD_H,
     padding: 16,
     marginBottom: CARD_GAP,
-    borderLeftWidth: 4,
-    borderLeftColor: '#3b9eff',
-    borderWidth: 3,
-    borderColor: 'transparent',
+    borderLeftWidth: 3,
+    borderLeftColor: theme.accentFallback,
   },
-  deviceCardFocused: {
-    borderColor: '#ffffff',
-    backgroundColor: '#16315a',
-  },
-  deviceName: {
-    fontSize: 22,
-    fontWeight: 'bold',
-    color: '#3b9eff',
-    marginBottom: 4,
-  },
+  deviceName: {...typeScale.title, color: theme.textPrimary, marginBottom: 4},
   deviceInfo: {
-    fontSize: 16,
-    color: '#aaa',
+    ...typeScale.body,
+    fontWeight: '400',
+    color: theme.textSecondary,
     marginBottom: 4,
   },
-  deviceModel: {
-    fontSize: 14,
-    color: '#888',
-  },
+  deviceModel: {...typeScale.caption, color: theme.textDim},
   emptyContainer: {
     flex: 1,
     justifyContent: 'center',
@@ -358,14 +329,10 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   refreshButton: {
-    backgroundColor: '#3b9eff',
+    backgroundColor: 'rgba(255,255,255,0.06)',
     paddingHorizontal: 40,
     paddingVertical: 15,
-    borderRadius: 8,
+    borderRadius: radius.md,
   },
-  refreshButtonText: {
-    color: '#1a1a1a',
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
+  refreshButtonText: {...typeScale.label, color: theme.textSecondary},
 });

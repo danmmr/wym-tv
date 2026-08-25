@@ -1,5 +1,8 @@
 import React, {useCallback, useEffect, useRef, useState} from 'react';
 import {View, Text, StyleSheet, FlatList, BackHandler} from 'react-native';
+import Focusable from '../components/Focusable';
+import Icon from '../components/Icon';
+import {color as theme, radius, space, type as typeScale} from '../theme';
 import {captureDpad, subscribeNav} from '../nav/dpad';
 import {useFocusEffect} from '@react-navigation/native';
 import {useDeviceStore} from '../store/deviceStore';
@@ -187,10 +190,21 @@ export default function QueueScreen({navigation}: any) {
     const isCurrent = item.index === current;
     const isFocused = focus === item.index;
     return (
-      <View style={[styles.row, isFocused && styles.rowFocused]}>
-        <Text style={[styles.num, isCurrent && styles.numCurrent]}>
-          {isCurrent ? '▶' : item.index}
-        </Text>
+      <Focusable
+        focused={isFocused}
+        scale={1.02}
+        ringColor={theme.accentFallback}
+        style={styles.row}>
+        {/* The playing row is marked with a Skia glyph rather than a ▶
+            character, which Fire OS drew from the emoji font at a different
+            weight and baseline from the track numbers it sits among. */}
+        <View style={styles.num}>
+          {isCurrent ? (
+            <Icon name="play" size={15} color={theme.nowPlaying} />
+          ) : (
+            <Text style={styles.numText}>{item.index}</Text>
+          )}
+        </View>
         <View style={styles.rowText}>
           <Text
             style={[styles.title, isCurrent && styles.titleCurrent]}
@@ -203,7 +217,7 @@ export default function QueueScreen({navigation}: any) {
             </Text>
           ) : null}
         </View>
-      </View>
+      </Focusable>
     );
   };
 
@@ -217,11 +231,20 @@ export default function QueueScreen({navigation}: any) {
         </Text>
       </View>
 
-      <View style={[styles.shuffle, focus === 0 && styles.shuffleFocused]}>
+      <Focusable
+        focused={focus === 0}
+        scale={1.06}
+        ringColor={theme.accentFallback}
+        style={styles.shuffle}>
+        <Icon
+          name="shuffle"
+          size={18}
+          color={shuffle ? theme.nowPlaying : theme.textDim}
+        />
         <Text style={styles.shuffleText}>
-          {`🔀 Shuffle: ${shuffle ? 'On' : 'Off'}`}
+          {`Shuffle: ${shuffle ? 'On' : 'Off'}`}
         </Text>
-      </View>
+      </Focusable>
 
       {status ? <Text style={styles.status}>{status}</Text> : null}
 
@@ -265,44 +288,43 @@ const styles = StyleSheet.create({
     paddingBottom: 96,
   },
   header: {marginBottom: 8},
-  heading: {fontSize: 20, fontWeight: 'bold', color: '#fff'},
-  sub: {fontSize: 14, color: '#8b95a7', marginTop: 2},
+  heading: {...typeScale.title, color: theme.textPrimary},
+  sub: {...typeScale.caption, color: theme.textDim, marginTop: 2},
+  // The icon carries the on/off state by tinting, so the row does not need a
+  // fill that changes colour underneath it.
   shuffle: {
+    flexDirection: 'row',
+    alignItems: 'center',
     alignSelf: 'flex-start',
-    paddingHorizontal: 16,
-    paddingVertical: 6,
-    borderRadius: 8,
-    borderWidth: 3,
-    borderColor: 'transparent',
-    backgroundColor: '#16315a',
+    gap: space.sm,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: radius.md,
+    backgroundColor: 'rgba(255,255,255,0.06)',
     marginBottom: 8,
   },
-  shuffleFocused: {borderColor: '#ffffff', backgroundColor: '#1f4480'},
-  shuffleText: {color: '#cfe0ff', fontWeight: 'bold', fontSize: 15},
-  status: {color: '#3b9eff', fontSize: 13, marginBottom: 6},
+  shuffleText: {...typeScale.label, color: theme.textPrimary},
+  status: {...typeScale.caption, color: theme.textDim, marginBottom: 6},
   list: {flex: 1},
   row: {
     height: ROW_H - 6,
     marginBottom: 6,
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#161a22',
-    borderRadius: 8,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderRadius: radius.md,
     paddingHorizontal: 14,
-    borderWidth: 3,
-    borderColor: 'transparent',
   },
-  rowFocused: {borderColor: '#ffffff', backgroundColor: '#16315a'},
-  num: {
-    width: 34,
-    color: '#8b95a7',
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
-  numCurrent: {color: '#46c08d'},
+  num: {width: 34, alignItems: 'flex-start', justifyContent: 'center'},
+  numText: {...typeScale.body, color: theme.textDim, fontWeight: 'bold'},
   rowText: {flex: 1},
-  title: {color: '#fff', fontSize: 16},
-  titleCurrent: {color: '#46c08d', fontWeight: 'bold'},
-  artist: {color: '#8b95a7', fontSize: 13, marginTop: 1},
-  hint: {color: '#5b6472', fontSize: 12, textAlign: 'center', marginTop: 8},
+  title: {...typeScale.body, fontWeight: '400', color: theme.textPrimary},
+  titleCurrent: {color: theme.nowPlaying, fontWeight: 'bold'},
+  artist: {...typeScale.caption, color: theme.textDim, marginTop: 1},
+  hint: {
+    ...typeScale.caption,
+    color: theme.textDim,
+    textAlign: 'center',
+    marginTop: 8,
+  },
 });

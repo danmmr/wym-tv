@@ -33,6 +33,12 @@ export const color = {
   // Amber for the reconnecting banner. Not red — a reconnect is not an error,
   // it is the poll loop backing off, and it usually resolves itself.
   warn: '#ffb84d',
+  // The currently-playing row in Queue. Green rather than the accent, because
+  // the accent is derived from the cover of the track that IS playing — tinting
+  // "this one is playing" with it would make the marker vanish into everything
+  // else on screen that already follows the same colour.
+  nowPlaying: '#46c08d',
+
   // Feeling Lucky's violet, the one element deliberately NOT accent-tinted:
   // it is a shuffle, not a property of the current album.
   lucky: '#5b2bd9',

@@ -37,6 +37,7 @@ import {inputsEnabled, presetsEnabled} from '../config/display';
 import {navKeyboard, scrollTopFor, KeyCell, TABS} from './browseNav';
 import Icon from '../components/Icon';
 import type {IconName} from '../components/Icon';
+import type {ViewStyle} from 'react-native';
 import Focusable from '../components/Focusable';
 import {
   color as theme,
@@ -1507,16 +1508,29 @@ export default function BrowseScreen({navigation, route}: any) {
         const f = zone === 'content' && index === i;
         const capped = item.count > PLAYLIST_MAX;
         return (
-          <View style={[styles.resultItem, f && styles.resultItemFocused]}>
+          <Focusable
+            focused={f}
+            scale={1.02}
+            ringColor={theme.accentFallback}
+            style={styles.resultItem}>
+            {/* A smart playlist is a saved query, not a hand-made list, and
+                that difference decides whether its contents will have changed
+                since last time. It used to be signalled by a ⚙ prefix inside
+                the title string — Noto Color Emoji again, and it made the
+                titles fail to line up with each other. */}
+            <Icon
+              name={item.smart ? 'settings' : 'playlists'}
+              size={20}
+              color={f ? theme.accentFallback : theme.textDim}
+            />
             <Text style={styles.resultName} numberOfLines={1}>
-              {item.smart ? '⚙ ' : ''}
               {item.title}
             </Text>
             <Text style={styles.resultCount}>
               {item.count ? `${item.count} tracks` : 'empty'}
               {capped ? ` · first ${PLAYLIST_MAX}` : ''}
             </Text>
-          </View>
+          </Focusable>
         );
       }}
       keyExtractor={item => item.ratingKey}
@@ -1659,17 +1673,18 @@ export default function BrowseScreen({navigation, route}: any) {
                   kbPos.row === ri &&
                   kbPos.col === ci;
                 return (
-                  <View
+                  <Focusable
                     key={ci}
-                    style={[
-                      styles.key,
-                      key.act && styles.keyWide,
-                      f && styles.keyFocused,
-                    ]}>
+                    focused={f}
+                    scale={1.14}
+                    ringColor={theme.accentFallback}
+                    style={
+                      key.act ? styles.keyWideBox : (styles.key as ViewStyle)
+                    }>
                     <Text style={[styles.keyText, f && styles.keyTextFocused]}>
                       {key.l}
                     </Text>
-                  </View>
+                  </Focusable>
                 );
               })}
             </View>
@@ -1685,14 +1700,18 @@ export default function BrowseScreen({navigation, route}: any) {
               searchZone === 'results' &&
               searchResIdx === i;
             return (
-              <View style={[styles.resultItem, f && styles.resultItemFocused]}>
+              <Focusable
+                focused={f}
+                scale={1.02}
+                ringColor={theme.accentFallback}
+                style={styles.resultItem}>
                 <Text style={styles.resultName} numberOfLines={1}>
                   {item.title}
                 </Text>
                 <Text style={styles.resultCount} numberOfLines={1}>
                   {item.artist}
                 </Text>
-              </View>
+              </Focusable>
             );
           }}
           keyExtractor={item => item.ratingKey}
@@ -2047,23 +2066,26 @@ const styles = StyleSheet.create({
   searchWrap: {
     flex: 1,
   },
+  // The query bar reads as an input without shouting: a faint surface and a
+  // hairline rather than the 2dp saturated-blue outline it had, which was the
+  // brightest thing on the screen while being the one element you never focus.
   queryBar: {
-    backgroundColor: '#2a2a2a',
-    borderRadius: 8,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderRadius: radius.md,
     paddingHorizontal: 18,
     paddingVertical: 12,
     marginBottom: 16,
-    borderWidth: 2,
-    borderColor: '#3b9eff',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.14)',
   },
   queryText: {
-    color: '#fff',
-    fontSize: 20,
-    fontWeight: '600',
+    ...typeScale.title,
+    color: theme.textPrimary,
   },
   queryPlaceholder: {
-    color: '#777',
-    fontSize: 20,
+    ...typeScale.title,
+    fontWeight: '400',
+    color: theme.textDim,
   },
   caret: {
     color: '#3b9eff',
@@ -2083,56 +2105,63 @@ const styles = StyleSheet.create({
   key: {
     width: 54,
     height: 50,
-    borderRadius: 8,
-    backgroundColor: '#333',
+    borderRadius: radius.md,
+    backgroundColor: 'rgba(255,255,255,0.06)',
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 3,
-    borderColor: 'transparent',
   },
-  keyWide: {
+  keyWideBox: {
     width: 78,
-  },
-  keyFocused: {
-    borderColor: '#ffffff',
-    backgroundColor: '#3b9eff',
+    height: 50,
+    borderRadius: radius.md,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   keyText: {
-    color: '#ddd',
-    fontSize: 18,
+    ...typeScale.body,
+    color: theme.textSecondary,
     fontWeight: 'bold',
   },
+  // Focused keys tint rather than invert. The old key filled solid blue with
+  // near-black text, which at typing speed strobed the whole keyboard.
   keyTextFocused: {
-    color: '#1a1a1a',
+    color: theme.accentFallback,
   },
   resultsList: {
     flex: 1,
   },
+  // List rows for Playlists, Search results and Collections.
+  //
+  // These were the last of the old focus idiom: a 3dp white border snapping on
+  // over a #16315a fill, which made every row read as a form field. Now the row
+  // sits on the same faint surface as every other control and focus is carried
+  // by the accent ring and brightness, as it is everywhere else.
   resultItem: {
     height: RESULT_H - 8,
     marginBottom: 8,
-    backgroundColor: '#2a2a2a',
-    borderRadius: 8,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderRadius: radius.md,
     paddingHorizontal: 18,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    borderWidth: 3,
-    borderColor: 'transparent',
+    gap: space.md,
   },
-  resultItemFocused: {
-    borderColor: '#ffffff',
-    backgroundColor: '#16315a',
-  },
+  // flex, not flexShrink. The row is space-between, and adding the playlist
+  // icon made it three children instead of two — which left the title floating
+  // in the middle of the row rather than sitting against the icon. Letting the
+  // title take the free space pins it left and pushes the count to the edge.
   resultName: {
-    color: '#fff',
-    fontSize: 17,
-    flexShrink: 1,
+    ...typeScale.body,
+    color: theme.textPrimary,
+    flex: 1,
   },
+  // The secondary column — track counts, artist names. A count is metadata
+  // about the row, not a second title, so it recedes.
   resultCount: {
-    color: '#9aa',
-    fontSize: 14,
-    marginLeft: 12,
+    ...typeScale.caption,
+    color: theme.textDim,
   },
   noResults: {
     color: '#777',

@@ -7,6 +7,8 @@ import {
   FlatList,
   BackHandler,
 } from 'react-native';
+import Focusable from '../components/Focusable';
+import {color as theme, radius, type as typeScale} from '../theme';
 import {captureDpad, subscribeNav} from '../nav/dpad';
 import {useFocusEffect} from '@react-navigation/native';
 import {useDeviceStore} from '../store/deviceStore';
@@ -168,7 +170,11 @@ export default function AlbumScreen({route, navigation}: any) {
   const renderRow = ({item, index: i}: {item: PlexTrack; index: number}) => {
     const isFocused = focus === i;
     return (
-      <View style={[styles.row, isFocused && styles.rowFocused]}>
+      <Focusable
+        focused={isFocused}
+        scale={1.02}
+        ringColor={theme.accentFallback}
+        style={styles.row}>
         <Text style={styles.num}>{i + 1}</Text>
         <View style={styles.rowText}>
           <Text style={styles.title} numberOfLines={1}>
@@ -184,7 +190,7 @@ export default function AlbumScreen({route, navigation}: any) {
           ) : null}
         </View>
         <Text style={styles.dur}>{fmtDur(item.durationMs)}</Text>
-      </View>
+      </Focusable>
     );
   };
 
@@ -277,27 +283,36 @@ const styles = StyleSheet.create({
   art: {width: 88, height: 88, borderRadius: 8, backgroundColor: '#1a1a1a'},
   artEmpty: {borderWidth: 1, borderColor: '#2a2a2a'},
   headerText: {flex: 1, marginLeft: 16},
-  heading: {fontSize: 22, fontWeight: 'bold', color: '#fff'},
-  sub: {fontSize: 16, color: '#5cb0ff', marginTop: 2},
-  meta: {fontSize: 13, color: '#8b95a7', marginTop: 3},
-  status: {color: '#3b9eff', fontSize: 13, marginBottom: 6},
+  heading: {...typeScale.title, color: theme.textPrimary},
+  sub: {...typeScale.body, color: theme.accentFallback, marginTop: 2},
+  meta: {...typeScale.caption, color: theme.textDim, marginTop: 3},
+  status: {...typeScale.caption, color: theme.textDim, marginBottom: 6},
   list: {flex: 1},
+  // Track row. The 3dp white border and #16315a fill are gone, as everywhere
+  // else — focus is the accent ring plus brightness now.
   row: {
     height: ROW_H - 6,
     marginBottom: 6,
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#161a22',
-    borderRadius: 8,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderRadius: radius.md,
     paddingHorizontal: 14,
-    borderWidth: 3,
-    borderColor: 'transparent',
   },
-  rowFocused: {borderColor: '#ffffff', backgroundColor: '#16315a'},
-  num: {width: 34, color: '#8b95a7', fontSize: 15, fontWeight: 'bold'},
+  num: {
+    width: 34,
+    ...typeScale.caption,
+    color: theme.textDim,
+    fontWeight: 'bold',
+  },
   rowText: {flex: 1},
-  title: {color: '#fff', fontSize: 16},
-  artist: {color: '#8b95a7', fontSize: 13, marginTop: 1},
-  dur: {color: '#8b95a7', fontSize: 14, marginLeft: 12},
-  hint: {color: '#5b6472', fontSize: 12, textAlign: 'center', marginTop: 8},
+  title: {...typeScale.body, fontWeight: '400', color: theme.textPrimary},
+  artist: {...typeScale.caption, color: theme.textDim, marginTop: 1},
+  dur: {...typeScale.caption, color: theme.textDim, marginLeft: 12},
+  hint: {
+    ...typeScale.caption,
+    color: theme.textDim,
+    textAlign: 'center',
+    marginTop: 8,
+  },
 });

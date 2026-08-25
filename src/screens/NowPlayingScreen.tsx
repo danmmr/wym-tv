@@ -5,22 +5,60 @@ import {
   StyleSheet,
   TouchableOpacity,
   Image,
+  Dimensions,
   DeviceEventEmitter,
   BackHandler,
 } from 'react-native';
+import Animated, {
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from 'react-native-reanimated';
 import {captureDpad, subscribeNav} from '../nav/dpad';
 import {useFocusEffect} from '@react-navigation/native';
+import Icon from '../components/Icon';
+import type {IconName} from '../components/Icon';
+import Focusable from '../components/Focusable';
+import {color, motion, onArt, radius, space, type} from '../theme';
 
 // 2D control grid for D-pad navigation: left/right within a row, up/down
 // between rows. Matches the on-screen layout for intuitive movement.
+//
+// This used to be six rows of pill buttons — every action one press away, which
+// is why it was built that way, but it made the player look like a settings
+// screen with art behind it. The nine secondary actions moved into the ⋮ menu
+// overlay below; what stays on the hero is transport, volume, and the way in.
 const ROWS: string[][] = [
-  ['prev', 'play', 'next'],
+  ['prev', 'play', 'next', 'more'],
   ['vdown', 'vup'],
-  ['lucky', 'queue'],
-  ['libradio', 'deepcuts'],
-  ['recent', 'album'],
+];
+
+// The overlay's own grid. Same key names as before, so activate() is unchanged
+// and every action behaves exactly as it did — only where you reach it moved.
+const MENU_ROWS: string[][] = [
+  ['lucky', 'queue', 'album'],
+  ['libradio', 'deepcuts', 'recent'],
   ['browse', 'settings', 'saver'],
 ];
+
+// Labels and glyphs for the overlay, keyed the same way. Kept beside MENU_ROWS
+// so adding an action means touching one place, not three.
+const MENU_META: Record<string, {label: string; icon: IconName}> = {
+  lucky: {label: 'Feeling Lucky', icon: 'dice'},
+  queue: {label: 'Queue', icon: 'queue'},
+  album: {label: 'Album', icon: 'album'},
+  libradio: {label: 'Library Radio', icon: 'radio'},
+  deepcuts: {label: 'Deep Cuts', icon: 'radio'},
+  recent: {label: 'Recently Added', icon: 'recent'},
+  browse: {label: 'Browse', icon: 'browse'},
+  settings: {label: 'Settings', icon: 'settings'},
+  saver: {label: 'Screensaver', icon: 'screensaver'},
+};
+
+// The window is 960x540 dp (1080p at density 320). Vertical space is the scarce
+// resource here, not horizontal, so the hero cover is sized off height.
+const {height: WIN_H} = Dimensions.get('window');
+const COVER = Math.round(WIN_H * 0.44);
 import {useDeviceStore} from '../store/deviceStore';
 import {usePlayerStore} from '../store/playerStore';
 import {WiiMClient} from '../api/wiim';
@@ -54,6 +92,16 @@ export default function NowPlayingScreen({navigation}: any) {
   const [focusRow, setFocusRow] = useState(0);
   const [focusCol, setFocusCol] = useState(1); // default: Play
   const focusPosRef = useRef({row: 0, col: 1});
+  // The ⋮ overlay holding the nine secondary actions. Its focus position is
+  // kept in a ref for the same reason the hero's is — see moveFocus below.
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [menuPos, setMenuPos] = useState({row: 0, col: 0});
+  const menuPosRef = useRef({row: 0, col: 0});
+  const menuOpenRef = useRef(false);
+  // Volume is a transient overlay, not a permanent row: showing the bar only
+  // while it is being changed is what buys the hero its vertical space.
+  const [volumeShown, setVolumeShown] = useState(false);
+  const volumeTimerRef = useRef<NodeJS.Timeout>();
   const showScreensaverRef = useRef(false);
   const focusedKey = ROWS[focusRow]?.[focusCol];
   const pollTimeoutRef = useRef<NodeJS.Timeout>();
@@ -329,7 +377,7 @@ export default function NowPlayingScreen({navigation}: any) {
       setLastAction(`${label} ✓`);
       pollStatus();
     } catch (e: any) {
-      setLastAction(`${label} ✗ ${e?.message || 'error'}`);
+      setLastAction(`${label} — ${e?.message || 'error'}`);
     }
   };
 
@@ -389,7 +437,7 @@ export default function NowPlayingScreen({navigation}: any) {
     resetInactivityTimer();
     // A finite album supersedes any active station — stop auto-refilling.
     usePlayerStore.getState().setPlayerState({stationKind: null});
-    setLastAction('🎲 Finding an album…');
+    setLastAction('Finding an album…');
     try {
       const album = await getRandomAlbum();
       if (!album) {
@@ -402,10 +450,10 @@ export default function NowPlayingScreen({navigation}: any) {
         return;
       }
       await c.playAlbumQueue(queue, 0);
-      setLastAction(`🎲 ${album.title} — ${album.artist}`);
+      setLastAction(`${album.title} — ${album.artist}`);
       pollStatus();
     } catch (e: any) {
-      setLastAction(`Feeling lucky ✗ ${e?.message || 'error'}`);
+      setLastAction(`Feeling lucky — ${e?.message || 'error'}`);
     }
   };
 
@@ -430,7 +478,7 @@ export default function NowPlayingScreen({navigation}: any) {
     // A finite album supersedes any active station — stop auto-refilling, or
     // the refill would append over this album's tail (shared queue name).
     usePlayerStore.getState().setPlayerState({stationKind: null});
-    setLastAction(`💿 Loading ${ref.title}…`);
+    setLastAction(`Loading ${ref.title}…`);
     try {
       const queue = await buildAlbumQueue({
         ratingKey: ref.key,
@@ -446,10 +494,10 @@ export default function NowPlayingScreen({navigation}: any) {
         return;
       }
       await c.playAlbumQueue(queue, 0);
-      setLastAction(`💿 ${ref.title} — ${ref.artist}`);
+      setLastAction(`${ref.title} — ${ref.artist}`);
       pollStatus();
     } catch (e: any) {
-      setLastAction(`Album ✗ ${e?.message || 'error'}`);
+      setLastAction(`Album — ${e?.message || 'error'}`);
     }
   };
 
@@ -473,15 +521,27 @@ export default function NowPlayingScreen({navigation}: any) {
       // Mark this as a station so the poll loop keeps it refilled.
       refillAtRef.current = 0;
       usePlayerStore.getState().setPlayerState({stationKind: kind});
-      setLastAction(`${label} ▶ auto-refilling`);
+      setLastAction(`${label} — auto-refilling`);
       pollStatus();
     } catch (e: any) {
-      setLastAction(`${label} ✗ ${e?.message || 'error'}`);
+      setLastAction(`${label} — ${e?.message || 'error'}`);
     }
+  };
+
+  // Reveal the volume bar and re-arm its hide timer. Called on every volume
+  // press, so holding the key keeps the bar up rather than flickering it.
+  const revealVolume = () => {
+    setVolumeShown(true);
+    clearTimeout(volumeTimerRef.current);
+    volumeTimerRef.current = setTimeout(
+      () => setVolumeShown(false),
+      motion.volumeOverlay,
+    );
   };
 
   const handleVolumeUp = () =>
     run('Vol +', async () => {
+      revealVolume();
       const v = Math.min(100, usePlayerStore.getState().volume + 5);
       usePlayerStore.getState().setPlayerState({volume: v}); // optimistic
       await clientRef.current!.setVolume(v);
@@ -489,6 +549,7 @@ export default function NowPlayingScreen({navigation}: any) {
 
   const handleVolumeDown = () =>
     run('Vol -', async () => {
+      revealVolume();
       const v = Math.max(0, usePlayerStore.getState().volume - 5);
       usePlayerStore.getState().setPlayerState({volume: v}); // optimistic
       await clientRef.current!.setVolume(v);
@@ -512,6 +573,9 @@ export default function NowPlayingScreen({navigation}: any) {
       case 'vup':
         handleVolumeUp();
         break;
+      case 'more':
+        openMenu();
+        break;
       case 'lucky':
         handleFeelingLucky();
         break;
@@ -519,10 +583,10 @@ export default function NowPlayingScreen({navigation}: any) {
         navigation.navigate('Queue');
         break;
       case 'libradio':
-        handleStation('library', '📻 Library Radio');
+        handleStation('library', 'Library Radio');
         break;
       case 'deepcuts':
-        handleStation('deepcuts', '🌊 Deep Cuts');
+        handleStation('deepcuts', 'Deep Cuts');
         break;
       case 'recent':
         // Jump straight to Browse's Recent tab to pick a recently added album.
@@ -542,6 +606,70 @@ export default function NowPlayingScreen({navigation}: any) {
         break;
     }
   };
+
+  const openMenu = () => {
+    menuPosRef.current = {row: 0, col: 0};
+    setMenuPos({row: 0, col: 0});
+    menuOpenRef.current = true;
+    setMenuOpen(true);
+  };
+
+  const closeMenu = () => {
+    menuOpenRef.current = false;
+    setMenuOpen(false);
+  };
+
+  // The overlay owns the D-pad while it is up, through its OWN subscription
+  // rather than by branching inside the screen's handler.
+  //
+  // That works because nav/dpad.ts keeps a STACK of handlers and routes to the
+  // top one: subscribing here pushes above the screen's handler, so the screen
+  // stops seeing keys without either side knowing about the other, and popping
+  // on close hands them straight back. Branching inside the screen's handler
+  // would have been the alternative, but that handler is deliberately
+  // registered once with no deps and reads everything through refs — adding a
+  // second focus model to it is how it would start re-registering and dropping
+  // presses again.
+  useEffect(() => {
+    if (!menuOpen) {
+      return;
+    }
+    const unsub = subscribeNav((k: string) => {
+      const {row, col} = menuPosRef.current;
+      const moveMenu = (r: number, c: number) => {
+        const rr = Math.min(Math.max(0, r), MENU_ROWS.length - 1);
+        const cc = Math.min(Math.max(0, c), MENU_ROWS[rr].length - 1);
+        menuPosRef.current = {row: rr, col: cc};
+        setMenuPos({row: rr, col: cc});
+      };
+      if (k === 'left') {
+        moveMenu(row, col - 1);
+      } else if (k === 'right') {
+        moveMenu(row, col + 1);
+      } else if (k === 'up') {
+        moveMenu(row - 1, col);
+      } else if (k === 'down') {
+        moveMenu(row + 1, col);
+      } else if (k === 'select') {
+        const {row: r, col: c} = menuPosRef.current;
+        // Close FIRST: several of these navigate away, and leaving the overlay
+        // mounted would keep its handler on top of the stack on the way out.
+        closeMenu();
+        activate(MENU_ROWS[r][c]);
+      } else if (k === 'menu') {
+        closeMenu();
+      }
+    });
+    return unsub;
+    // Subscribing depends only on the overlay being open; everything the
+    // handler reads comes through refs, so it must not re-register per move.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [menuOpen]);
+
+  // Clear the volume-hide timer on unmount so it cannot fire a setState into
+  // an unmounted screen. Note the double arrow: clearTimeout returns undefined,
+  // so returning its result directly would register no cleanup at all.
+  useEffect(() => () => clearTimeout(volumeTimerRef.current), []);
 
   // Focus moves are written to the ref SYNCHRONOUSLY, not in an effect.
   // The D-pad handler computes the next position from the ref, and an effect
@@ -641,6 +769,10 @@ export default function NowPlayingScreen({navigation}: any) {
       // Hardware BACK exits the screensaver and is consumed so it does not close
       // the app. When the screensaver is not up, fall through to default behavior.
       const backSub = BackHandler.addEventListener('hardwareBackPress', () => {
+        if (menuOpenRef.current) {
+          closeMenu();
+          return true;
+        }
         if (showArtFrameRef.current) {
           exitArtFrame();
           return true;
@@ -681,6 +813,13 @@ export default function NowPlayingScreen({navigation}: any) {
     );
   }
 
+  const tier = resTier();
+  const format = formatLine();
+  const progressPct =
+    playerState.duration > 0
+      ? Math.min(100, (playerState.currentPos / playerState.duration) * 100)
+      : 0;
+
   return (
     <View style={styles.container}>
       {albumArt ? (
@@ -691,7 +830,12 @@ export default function NowPlayingScreen({navigation}: any) {
           blurRadius={8}
         />
       ) : null}
-      <View style={styles.scrim} pointerEvents="none" />
+      {/* Two stacked scrims instead of one flat 55% wash: the old scrim dimmed
+          the whole frame equally, including the top where there is nothing to
+          protect. This keeps the art bright up top and puts the darkness under
+          the metadata, where the contrast is actually needed. */}
+      <View style={styles.scrimTop} pointerEvents="none" />
+      <View style={styles.scrimBottom} pointerEvents="none" />
 
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.navigate('Discovery')}>
@@ -700,199 +844,250 @@ export default function NowPlayingScreen({navigation}: any) {
           </Text>
         </TouchableOpacity>
         {connection === 'reconnecting' ? (
-          <Text style={styles.reconnecting}>⟳ reconnecting…</Text>
+          <Text style={styles.reconnecting}>reconnecting…</Text>
         ) : null}
       </View>
 
-      <View style={styles.artSpacer} />
+      <View style={styles.hero}>
+        <AlbumCover uri={albumArt} accent={accent} />
 
-      <View style={styles.infoContainer}>
-        <Text style={styles.title}>{playerState.title}</Text>
-        <Text style={[styles.artist, {color: accent}]}>
-          {playerState.trackArtist || playerState.artist}
-        </Text>
-        <Text style={styles.album}>{playerState.album}</Text>
-        {resTier() || formatLine() ? (
-          <View style={styles.formatRow}>
-            {resTier() ? (
-              <View style={[styles.badge, {backgroundColor: resTier()!.bg}]}>
-                <Text style={[styles.badgeText, {color: resTier()!.fg}]}>
-                  {resTier()!.label}
-                </Text>
-              </View>
-            ) : null}
-            {formatLine() ? (
-              <Text style={styles.format}>{formatLine()}</Text>
-            ) : null}
-          </View>
-        ) : null}
-      </View>
-
-      <View style={styles.progressContainer}>
-        <Text style={styles.time}>{fmt(playerState.currentPos)}</Text>
-        <View style={styles.progressBar}>
-          <View
-            style={[
-              styles.progressFill,
-              {
-                backgroundColor: accent,
-                width: `${
-                  playerState.duration > 0
-                    ? Math.min(
-                        100,
-                        (playerState.currentPos / playerState.duration) * 100,
-                      )
-                    : 0
-                }%`,
-              },
-            ]}
-          />
-        </View>
-        <Text style={styles.time}>{fmt(playerState.duration)}</Text>
-      </View>
-
-      <View style={styles.controls}>
-        <View
-          style={[
-            styles.button,
-            {backgroundColor: accent},
-            focusedKey === 'prev' && styles.buttonFocused,
-          ]}>
-          <Text style={styles.buttonText}>⏮ Prev</Text>
-        </View>
-
-        <View
-          style={[
-            styles.button,
-            {backgroundColor: accent},
-            focusedKey === 'play' && styles.buttonFocused,
-          ]}>
-          <Text style={styles.buttonText}>
-            {playerState.status === 'play' ? '⏸ Pause' : '▶ Play'}
+        <View style={styles.info}>
+          <Text style={styles.title} numberOfLines={2}>
+            {playerState.title}
           </Text>
-        </View>
+          <Text style={[styles.artist, {color: accent}]} numberOfLines={1}>
+            {playerState.trackArtist || playerState.artist}
+          </Text>
+          <Text style={styles.album} numberOfLines={1}>
+            {playerState.album}
+          </Text>
 
-        <View
-          style={[
-            styles.button,
-            {backgroundColor: accent},
-            focusedKey === 'next' && styles.buttonFocused,
-          ]}>
-          <Text style={styles.buttonText}>Next ⏭</Text>
-        </View>
-      </View>
+          {tier || format ? (
+            <View style={styles.formatRow}>
+              {tier ? (
+                <View style={[styles.badge, {backgroundColor: tier.bg}]}>
+                  <Text style={[styles.badgeText, {color: tier.fg}]}>
+                    {tier.label}
+                  </Text>
+                </View>
+              ) : null}
+              {format ? <Text style={styles.format}>{format}</Text> : null}
+            </View>
+          ) : null}
 
-      <View style={styles.volumeContainer}>
-        <View
-          style={[
-            styles.volumeButton,
-            focusedKey === 'vdown' && styles.volumeButtonFocused,
-          ]}>
-          <Text style={styles.volumeText}>🔉</Text>
-        </View>
-        <View style={styles.volumeBar}>
-          <View
-            style={[
-              styles.volumeFill,
-              {backgroundColor: accent, width: `${playerState.volume}%`},
-            ]}
-          />
-        </View>
-        <View
-          style={[
-            styles.volumeButton,
-            focusedKey === 'vup' && styles.volumeButtonFocused,
-          ]}>
-          <Text style={styles.volumeText}>🔊</Text>
-        </View>
-      </View>
+          <View style={styles.progressRow}>
+            <Text style={styles.time}>{fmt(playerState.currentPos)}</Text>
+            <View style={styles.progressBar}>
+              <View
+                style={[
+                  styles.progressFill,
+                  {backgroundColor: accent, width: `${progressPct}%`},
+                ]}
+              />
+              {/* Position dot at the fill head — the one cue that reads as a
+                  scrubbing player rather than a loading bar. */}
+              <View
+                style={[
+                  styles.progressDot,
+                  {backgroundColor: accent, left: `${progressPct}%`},
+                ]}
+              />
+            </View>
+            <Text style={styles.time}>{fmt(playerState.duration)}</Text>
+          </View>
 
-      <View style={styles.luckyRow}>
-        <View
-          style={[
-            styles.luckyButton,
-            focusedKey === 'lucky' && styles.luckyButtonFocused,
-          ]}>
-          <Text style={styles.luckyText}>🎲 Feeling lucky?</Text>
-        </View>
-        <View
-          style={[
-            styles.luckyButton,
-            focusedKey === 'queue' && styles.luckyButtonFocused,
-          ]}>
-          <Text style={styles.luckyText}>☰ Queue</Text>
-        </View>
-      </View>
+          <View style={styles.transport}>
+            {(
+              [
+                ['prev', 'prev'],
+                ['play', playerState.status === 'play' ? 'pause' : 'play'],
+                ['next', 'next'],
+                ['more', 'more'],
+              ] as [string, IconName][]
+            ).map(([key, icon]) => (
+              <Focusable
+                key={key}
+                focused={focusedKey === key}
+                ringColor={accent}
+                style={styles.control}>
+                <Icon
+                  name={icon}
+                  size={key === 'play' ? 34 : 26}
+                  color={focusedKey === key ? accent : color.textPrimary}
+                />
+              </Focusable>
+            ))}
+          </View>
 
-      <View style={styles.luckyRow}>
-        <View
-          style={[
-            styles.luckyButton,
-            focusedKey === 'libradio' && styles.luckyButtonFocused,
-          ]}>
-          <Text style={styles.luckyText}>📻 Library Radio</Text>
-        </View>
-        <View
-          style={[
-            styles.luckyButton,
-            focusedKey === 'deepcuts' && styles.luckyButtonFocused,
-          ]}>
-          <Text style={styles.luckyText}>🌊 Deep Cuts</Text>
-        </View>
-      </View>
-
-      <View style={styles.luckyRow}>
-        <View
-          style={[
-            styles.luckyButton,
-            focusedKey === 'recent' && styles.luckyButtonFocused,
-          ]}>
-          <Text style={styles.luckyText}>Recently Added</Text>
-        </View>
-        <View
-          style={[
-            styles.luckyButton,
-            focusedKey === 'album' && styles.luckyButtonFocused,
-          ]}>
-          <Text style={styles.luckyText}>💿 Album</Text>
+          {/* The volume controls stay focusable at all times; only the BAR is
+              transient, so the row never changes height as it appears. */}
+          <View style={styles.volumeRow}>
+            <Focusable
+              focused={focusedKey === 'vdown'}
+              ringColor={accent}
+              style={styles.control}>
+              <Icon
+                name="volumeDown"
+                size={22}
+                color={focusedKey === 'vdown' ? accent : color.textPrimary}
+              />
+            </Focusable>
+            <VolumeBar
+              shown={volumeShown || focusRow === 1}
+              value={playerState.volume}
+              accent={accent}
+            />
+            <Focusable
+              focused={focusedKey === 'vup'}
+              ringColor={accent}
+              style={styles.control}>
+              <Icon
+                name="volumeUp"
+                size={22}
+                color={focusedKey === 'vup' ? accent : color.textPrimary}
+              />
+            </Focusable>
+          </View>
         </View>
       </View>
 
       {lastAction ? <Text style={styles.statusLine}>{lastAction}</Text> : null}
 
-      <View style={styles.footer}>
-        <View
-          style={[
-            styles.footerBtn,
-            focusedKey === 'browse' && styles.footerBtnFocused,
-          ]}>
-          <Text style={[styles.footerLink, {color: accent}]}>Browse</Text>
+      {menuOpen ? (
+        <View style={styles.menuOverlay}>
+          <View style={styles.menuGrid}>
+            {MENU_ROWS.map((row, r) => (
+              <View key={r} style={styles.menuRow}>
+                {row.map((key, c) => {
+                  const meta = MENU_META[key];
+                  const on = menuPos.row === r && menuPos.col === c;
+                  return (
+                    <Focusable
+                      key={key}
+                      focused={on}
+                      scale={1.06}
+                      ringColor={accent}
+                      style={styles.menuItem}>
+                      <Icon
+                        name={meta.icon}
+                        size={30}
+                        color={on ? accent : color.textPrimary}
+                      />
+                      <Text style={styles.menuLabel}>{meta.label}</Text>
+                    </Focusable>
+                  );
+                })}
+              </View>
+            ))}
+          </View>
         </View>
-        <View
-          style={[
-            styles.footerBtn,
-            focusedKey === 'settings' && styles.footerBtnFocused,
-          ]}>
-          <Text style={[styles.footerLink, {color: accent}]}>Settings</Text>
-        </View>
-        <View
-          style={[
-            styles.footerBtn,
-            focusedKey === 'saver' && styles.footerBtnFocused,
-          ]}>
-          <Text style={[styles.footerLink, {color: accent}]}>Screensaver</Text>
-        </View>
-      </View>
+      ) : null}
     </View>
+  );
+}
+
+// Album art that cross-fades on track change instead of popping.
+//
+// Two stacked images: the outgoing one stays mounted underneath at full opacity
+// while the incoming one fades in over it. Fading the NEW image in (rather than
+// the old one out) is what avoids a flash of background mid-change — there is
+// never a moment when neither is opaque.
+//
+// The fade is keyed on the art URL, not on the track id: two tracks from the
+// same album share a cover, and re-fading identical art reads as a glitch.
+function AlbumCover({uri, accent}: {uri?: string; accent: string}) {
+  const [layers, setLayers] = useState<{prev?: string; next?: string}>({
+    next: uri,
+  });
+  // Tracks what is currently on top. A ref rather than reading `layers` in the
+  // effect, so the effect does not have to depend on the state it sets.
+  const shownRef = useRef(uri);
+  const opacity = useSharedValue(1);
+
+  useEffect(() => {
+    if (shownRef.current === uri) {
+      return;
+    }
+    const outgoing = shownRef.current;
+    shownRef.current = uri;
+    // Drop the incoming layer to transparent BEFORE it paints, so the first
+    // frame of the new cover is not a hard cut. Done here in the effect body,
+    // never inside the setState updater — an updater must be pure, and React
+    // is free to call it more than once per commit.
+    opacity.value = 0;
+    opacity.value = withTiming(1, {duration: motion.crossFade});
+    setLayers({prev: outgoing, next: uri});
+  }, [uri, opacity]);
+
+  const topStyle = useAnimatedStyle(() => ({opacity: opacity.value}));
+
+  const empty = (
+    <View style={[styles.cover, styles.coverEmpty, {borderColor: accent}]}>
+      <Icon name="album" size={COVER * 0.4} color={accent} />
+    </View>
+  );
+
+  return (
+    <View style={styles.coverStack}>
+      {layers.prev ? (
+        <Image
+          source={{uri: layers.prev}}
+          style={[styles.cover, styles.coverUnder, {borderColor: accent}]}
+          resizeMode="cover"
+        />
+      ) : null}
+      {layers.next ? (
+        <Animated.Image
+          source={{uri: layers.next}}
+          style={[styles.cover, {borderColor: accent}, topStyle]}
+          resizeMode="cover"
+        />
+      ) : (
+        empty
+      )}
+    </View>
+  );
+}
+
+// Volume bar that fades rather than unmounting. Kept as its own component so
+// the fade lives in one useAnimatedStyle instead of re-rendering the hero on
+// every volume press, and so the row keeps its height whether or not the bar
+// is showing — a bar that unmounted would shift the transport row under it.
+function VolumeBar({
+  shown,
+  value,
+  accent,
+}: {
+  shown: boolean;
+  value: number;
+  accent: string;
+}) {
+  const opacity = useSharedValue(0);
+  useEffect(() => {
+    opacity.value = withTiming(shown ? 1 : 0, {duration: 180});
+  }, [shown, opacity]);
+  const style = useAnimatedStyle(() => ({opacity: opacity.value}));
+
+  return (
+    <Animated.View style={[styles.volumeBar, style]}>
+      <View
+        style={[
+          styles.volumeFill,
+          {backgroundColor: accent, width: `${value}%`},
+        ]}
+      />
+    </Animated.View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0a0a0a',
-    // Fire TV overscan-safe insets: shift the whole stack up by trimming the top
-    // inset and growing the bottom inset, so the footer clears this TV's crop.
+    backgroundColor: color.bg,
+    // Fire TV overscan-safe insets, hand-tuned to THIS TV: the stack is shifted
+    // up by trimming the top inset and growing the bottom one. The 110 is 20%
+    // of screen height and looks wrong on paper — leave it alone until it has
+    // been re-checked on the actual panel, as its own change.
     paddingHorizontal: 48,
     paddingTop: 12,
     paddingBottom: 110,
@@ -901,21 +1096,17 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 8,
+    marginBottom: space.sm,
   },
   deviceButton: {
-    fontSize: 18,
-    color: '#3b9eff',
+    ...type.body,
     fontWeight: 'bold',
   },
-  // Amber, with a shadow so it stays legible over bright blurred album art.
   reconnecting: {
-    fontSize: 13,
-    color: '#ffb84d',
+    ...type.caption,
+    color: color.warn,
     fontWeight: '600',
-    textShadowColor: 'rgba(0,0,0,0.85)',
-    textShadowOffset: {width: 0, height: 1},
-    textShadowRadius: 4,
+    ...onArt,
   },
   // Album art blown up to fill the whole screen as a blurred background. Scaled
   // up slightly so the blur does not reveal soft edges at the screen borders.
@@ -927,205 +1118,194 @@ const styles = StyleSheet.create({
     bottom: 0,
     transform: [{scale: 1.1}],
   },
-  scrim: {
+  // Light everywhere, so the cover stays a cover and not a mood board.
+  scrimTop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.30)',
+  },
+  // Heavier under the metadata column. Two flat layers rather than a real
+  // gradient: a gradient needs a library this repo does not have, and at this
+  // blur radius the seam is invisible.
+  scrimBottom: {
     position: 'absolute',
-    top: 0,
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: 'rgba(0,0,0,0.55)',
+    height: '62%',
+    backgroundColor: 'rgba(0,0,0,0.42)',
   },
-  artSpacer: {
+  hero: {
     flex: 1,
-    minHeight: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.xl,
   },
-  placeholderText: {
-    fontSize: 120,
-    color: '#3b9eff',
-    fontWeight: 'bold',
+  // Fixed box so the two cross-fading layers stack without either affecting
+  // layout, and so the metadata column never shifts as art loads.
+  coverStack: {
+    width: COVER,
+    height: COVER,
   },
-  infoContainer: {
-    marginBottom: 2,
+  coverUnder: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+  },
+  cover: {
+    width: COVER,
+    height: COVER,
+    borderRadius: radius.md,
+    // Accent-tinted hairline: enough to separate the cover from a dark blurred
+    // version of itself, not enough to read as a frame.
+    borderWidth: 1,
+  },
+  coverEmpty: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.05)',
+  },
+  info: {
+    flex: 1,
+    justifyContent: 'center',
   },
   title: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#fff',
-    marginBottom: 4,
-    textShadowColor: 'rgba(0,0,0,0.85)',
-    textShadowOffset: {width: 0, height: 1},
-    textShadowRadius: 4,
+    ...type.hero,
+    color: color.textPrimary,
+    marginBottom: space.xs,
+    ...onArt,
   },
   artist: {
-    fontSize: 18,
-    color: '#5cb0ff',
-    marginBottom: 4,
-    textShadowColor: 'rgba(0,0,0,0.85)',
-    textShadowOffset: {width: 0, height: 1},
-    textShadowRadius: 4,
+    ...type.title,
+    marginBottom: 2,
+    ...onArt,
   },
   album: {
-    fontSize: 16,
-    color: '#d2d2d2',
-    textShadowColor: 'rgba(0,0,0,0.85)',
-    textShadowOffset: {width: 0, height: 1},
-    textShadowRadius: 4,
+    ...type.body,
+    color: color.textSecondary,
+    fontWeight: '400',
+    ...onArt,
   },
   formatRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
-    marginTop: 6,
+    marginTop: space.sm,
   },
-  // Quality-tier pill (HI-RES / LOSSLESS / codec). Color comes in inline per tier.
+  // Quality-tier pill. It says the TIER — HI-RES / LOSSLESS / LOSSY — never the
+  // codec; the codec is the first thing on the format line beside it.
   badge: {
-    paddingHorizontal: 8,
+    paddingHorizontal: space.sm,
     paddingVertical: 3,
-    borderRadius: 5,
+    borderRadius: radius.sm,
   },
   badgeText: {
-    fontSize: 11,
-    fontWeight: '800',
-    letterSpacing: 1.5,
+    ...type.badge,
   },
   // Brighter than the other dim greys + a shadow so the resolution/bitrate line
   // stays legible over bright album-art backgrounds (it used to vanish).
   format: {
-    fontSize: 13,
-    color: '#e2e2e2',
+    ...type.caption,
+    color: color.textDetail,
     letterSpacing: 1,
-    textShadowColor: 'rgba(0,0,0,0.9)',
-    textShadowOffset: {width: 0, height: 1},
-    textShadowRadius: 4,
+    ...onArt,
   },
-  progressContainer: {
+  progressRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 4,
+    marginTop: space.md,
   },
   time: {
-    color: '#888',
-    fontSize: 12,
-    marginHorizontal: 8,
+    ...type.caption,
+    color: color.textDim,
+    marginHorizontal: space.sm,
+    ...onArt,
   },
   progressBar: {
     flex: 1,
-    height: 6,
-    backgroundColor: '#333',
-    borderRadius: 3,
-    overflow: 'hidden',
+    height: 4,
+    backgroundColor: color.track,
+    borderRadius: 2,
   },
   progressFill: {
     height: '100%',
-    backgroundColor: '#3b9eff',
+    borderRadius: 2,
   },
-  controls: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    marginBottom: 4,
-    gap: 20,
+  progressDot: {
+    position: 'absolute',
+    top: -3,
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    // Pull back by half its width so the dot is centred ON the fill head
+    // rather than starting at it.
+    marginLeft: -5,
   },
-  button: {
-    backgroundColor: '#3b9eff',
-    paddingHorizontal: 25,
-    paddingVertical: 7,
-    borderRadius: 8,
-    borderWidth: 3,
-    borderColor: 'transparent',
-  },
-  // Focus = white ring + scale only, so the art-derived accent set inline on the
-  // button stays visible rather than being overwritten by a fixed blue.
-  buttonFocused: {
-    borderColor: '#ffffff',
-    transform: [{scale: 1.18}],
-  },
-  buttonText: {
-    color: '#0a0a0a',
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
-  volumeContainer: {
+  transport: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 4,
+    marginTop: space.md,
+    gap: space.md,
   },
-  volumeButton: {
-    marginHorizontal: 10,
-    padding: 6,
-    borderRadius: 8,
-    borderWidth: 3,
-    borderColor: 'transparent',
+  volumeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: space.sm,
+    gap: space.sm,
   },
-  volumeButtonFocused: {
-    borderColor: '#ffffff',
-    backgroundColor: '#16315a',
-    transform: [{scale: 1.15}],
-  },
-  volumeText: {
-    fontSize: 24,
+  // One control box for every icon button. Fixed size so focus scaling never
+  // reflows the row, and transparent so the icon carries the meaning.
+  control: {
+    width: 52,
+    height: 52,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: radius.md,
+    backgroundColor: 'rgba(255,255,255,0.06)',
   },
   volumeBar: {
     flex: 1,
-    height: 8,
-    backgroundColor: '#333',
-    borderRadius: 4,
-    overflow: 'hidden',
-    marginHorizontal: 10,
+    height: 4,
+    backgroundColor: color.track,
+    borderRadius: 2,
+    marginHorizontal: space.sm,
   },
   volumeFill: {
     height: '100%',
-    backgroundColor: '#3b9eff',
-  },
-  luckyRow: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    gap: 16,
-    marginBottom: 4,
-  },
-  luckyButton: {
-    backgroundColor: '#5b2bd9',
-    paddingHorizontal: 30,
-    paddingVertical: 7,
-    borderRadius: 8,
-    borderWidth: 3,
-    borderColor: 'transparent',
-  },
-  luckyButtonFocused: {
-    borderColor: '#ffffff',
-    backgroundColor: '#7a4dff',
-    transform: [{scale: 1.12}],
-  },
-  luckyText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: 'bold',
+    borderRadius: 2,
   },
   statusLine: {
-    color: '#3b9eff80',
-    fontSize: 13,
+    ...type.caption,
+    color: color.textDim,
     textAlign: 'center',
     marginBottom: 2,
+    ...onArt,
   },
-  footer: {
-    flexDirection: 'row',
+  // The ⋮ overlay. Covers the whole screen including the container padding,
+  // so it is positioned against the screen rather than laid out in the stack.
+  menuOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(6,6,6,0.90)',
+    alignItems: 'center',
     justifyContent: 'center',
-    gap: 40,
   },
-  footerBtn: {
-    paddingHorizontal: 18,
-    paddingVertical: 8,
-    borderRadius: 8,
-    borderWidth: 3,
-    borderColor: 'transparent',
+  menuGrid: {
+    gap: space.md,
   },
-  footerBtnFocused: {
-    borderColor: '#ffffff',
-    backgroundColor: '#16315a',
+  menuRow: {
+    flexDirection: 'row',
+    gap: space.md,
   },
-  footerLink: {
-    fontSize: 16,
-    color: '#3b9eff',
-    fontWeight: 'bold',
+  menuItem: {
+    width: 190,
+    height: 104,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: space.sm,
+    borderRadius: radius.md,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+  },
+  menuLabel: {
+    ...type.label,
+    color: color.textPrimary,
   },
 });

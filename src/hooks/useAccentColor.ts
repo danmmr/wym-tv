@@ -129,6 +129,32 @@ function normalizeAccent(hex: string): string {
   return hslToHex(h, clamp(s, 0.55, 0.95), clamp(l, 0.55, 0.66));
 }
 
+// A text-safe variant of an accent, for type drawn OVER the blurred cover.
+//
+// The accent itself is normalized to L 0.55-0.66, which pops nicely against the
+// near-black background — but the Now Playing hero does not draw text on
+// near-black, it draws it on a blurred, scrimmed copy of the cover the accent
+// came FROM. When a sleeve is dominated by one saturated colour, those two are
+// the same hue at nearly the same lightness and the text disappears into it.
+// Coil's "The Sound of Musick" is the case that exposed this: blue on blue,
+// unreadable across the room, while Max Richter and Public Enemy were fine
+// because their accents contrasted with their own backgrounds.
+//
+// So lift the lightness well clear of anything the scrim leaves behind, and cap
+// saturation so the result reads as tinted white rather than as a second
+// colour. The hue survives, which is the part that carries "this is the music".
+//
+// Fills, rings, the progress bar and icon tints keep the RAW accent — contrast
+// is not their problem and they lose their punch if paled.
+export function textAccent(hex: string): string {
+  const rgb = hexToRgb(hex);
+  if (!rgb) {
+    return '#ffffff';
+  }
+  const [h, s] = rgbToHsl(rgb[0], rgb[1], rgb[2]);
+  return hslToHex(h, clamp(s, 0.3, 0.55), 0.8);
+}
+
 // Accent for one image URL, or undefined if it can't be derived. Exported so
 // callers that theme off something OTHER than the currently playing track (the
 // art-frame slideshow) can reuse the same picking and normalization without

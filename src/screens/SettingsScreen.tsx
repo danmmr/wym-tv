@@ -7,6 +7,7 @@ import {
   NativeModules,
   Alert,
 } from 'react-native';
+import {color as theme, onArt, type as typeScale} from '../theme';
 import {captureDpad, subscribeNav} from '../nav/dpad';
 import {useFocusEffect} from '@react-navigation/native';
 import {useDeviceStore} from '../store/deviceStore';
@@ -114,9 +115,15 @@ export default function SettingsScreen({navigation}: any) {
       </View>
 
       <TouchableOpacity
-        style={[styles.backButton, focusedItem === 'back' && styles.focused]}
+        style={styles.backButton}
         onPress={() => navigation.navigate('NowPlaying')}>
-        <Text style={styles.backButtonText}>← Back</Text>
+        <Text
+          style={[
+            styles.backButtonText,
+            focusedItem === 'back' && styles.backFocusedText,
+          ]}>
+          ← Back
+        </Text>
       </TouchableOpacity>
     </View>
   );
@@ -169,18 +176,21 @@ const styles = StyleSheet.create({
     fontSize: 16,
     marginBottom: 8,
   },
+  // Plain "← Back", matching Browse. The filled blue slab it replaces was
+  // full-width and pinned to the bottom, which also meant it overlapped the
+  // About text on this screen.
   backButton: {
-    backgroundColor: '#3b9eff',
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-    borderRadius: 8,
-    alignItems: 'center',
+    alignSelf: 'flex-start',
+    paddingHorizontal: 4,
+    paddingVertical: 8,
     marginTop: 'auto',
-    borderWidth: 3,
-    borderColor: 'transparent',
   },
   backButtonText: {
-    color: '#1a1a1a',
-    fontWeight: 'bold',
+    ...typeScale.label,
+    color: theme.textPrimary,
+    ...onArt,
+  },
+  backFocusedText: {
+    color: theme.accentFallback,
   },
 });

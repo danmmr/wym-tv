@@ -1,5 +1,6 @@
 import React, {useCallback, useState, useEffect, useRef, useMemo} from 'react';
 import {
+  BackHandler,
   View,
   Text,
   StyleSheet,
@@ -34,6 +35,16 @@ import {
 import {usePlayerStore} from '../store/playerStore';
 import {inputsEnabled, presetsEnabled} from '../config/display';
 import {navKeyboard, scrollTopFor, KeyCell, TABS} from './browseNav';
+import Icon from '../components/Icon';
+import type {IconName} from '../components/Icon';
+import Focusable from '../components/Focusable';
+import {
+  color as theme,
+  onArt,
+  radius,
+  space,
+  type as typeScale,
+} from '../theme';
 
 const {width: SCREEN_W, height: SCREEN_H} = Dimensions.get('window');
 const COLS = 5;
@@ -95,7 +106,23 @@ const KEY_ROWS: Key[][] = [
 // Focus zones for the JS-managed D-pad cursor (this app captures the D-pad and
 // drives focus in JS rather than relying on native TV focus). The Artists tab
 // swaps its content between a shuffled artist grid and one artist's releases.
-type Zone = 'tabs' | 'content' | 'back';
+type Zone = 'landing' | 'content' | 'back';
+
+// The chooser lays TABS out in rows of three. Built from TABS rather than
+// hard-coded so the optional Presets/Inputs tabs land in it automatically when
+// config/display.ts turns them on.
+const CHOOSER_COLS = 3;
+
+const TAB_ICONS: Record<string, IconName> = {
+  artists: 'artists',
+  albums: 'album',
+  recent: 'recent',
+  playlists: 'playlists',
+  collections: 'collections',
+  search: 'search',
+  presets: 'presets',
+  inputs: 'inputs',
+};
 
 // Memoised album cell: with extraData on the FlatList only the two cards whose
 // `focused` flips actually re-render on each cursor move, instead of repainting
@@ -221,6 +248,16 @@ export default function BrowseScreen({navigation, route}: any) {
     !route?.params?.initialTab,
   );
   const showLandingRef = useRef(!route?.params?.initialTab);
+  // Cursor over the chooser cards. Starts on Albums because that was the tab
+  // Browse used to open on, so the default destination is unchanged.
+  const [chooserIdx, setChooserIdxState] = useState(
+    Math.max(0, TABS.indexOf('albums')),
+  );
+  const chooserIdxRef = useRef(Math.max(0, TABS.indexOf('albums')));
+  const setChooserIdx = (i: number) => {
+    chooserIdxRef.current = i;
+    setChooserIdxState(i);
+  };
   const setShowLanding = (v: boolean) => {
     showLandingRef.current = v;
     setShowLandingState(v);
@@ -290,7 +327,7 @@ export default function BrowseScreen({navigation, route}: any) {
   // With the landing page up there is no content to point at, so focus starts
   // on the tab bar and the very first press already means something.
   const [zone, setZoneState] = useState<Zone>(
-    route?.params?.initialTab ? 'content' : 'tabs',
+    route?.params?.initialTab ? 'content' : 'landing',
   );
   const [index, setIndex] = useState(0);
   const listRef = useRef<FlatList<PlexAlbum>>(null);
@@ -306,7 +343,9 @@ export default function BrowseScreen({navigation, route}: any) {
   const clientRef = useRef<WiiMClient | null>(null);
 
   // Refs mirrored for the key handler (registered once, reads live values).
-  const zoneRef = useRef<Zone>(route?.params?.initialTab ? 'content' : 'tabs');
+  const zoneRef = useRef<Zone>(
+    route?.params?.initialTab ? 'content' : 'landing',
+  );
   const idxRef = useRef(0);
   const tabRef = useRef(initialTab);
   const albumsRef = useRef<PlexAlbum[]>([]);
@@ -463,6 +502,17 @@ export default function BrowseScreen({navigation, route}: any) {
   const setZone = (z: Zone) => {
     zoneRef.current = z;
     setZoneState(z);
+  };
+
+  // Leave the current section and go back to the chooser.
+  //
+  // Every one of these call sites used to be backToChooser() — walking off the
+  // left or top edge of a grid put you on the tab bar. There is no tab bar any
+  // more, so the same gesture lands on the chooser instead: the edge still
+  // means "out of here", which is the part that was worth keeping.
+  const backToChooser = () => {
+    setShowLanding(true);
+    setZone('landing');
   };
 
   const setRecentZone = (z: 'shuffle' | 'grid') => {
@@ -926,7 +976,7 @@ export default function BrowseScreen({navigation, route}: any) {
         if (col > 0) {
           moveTo(idx - 1);
         } else {
-          setZone('tabs');
+          backToChooser();
         }
       } else if (k === 'right') {
         if (col < COLS - 1 && idx + 1 < n) {
@@ -936,7 +986,7 @@ export default function BrowseScreen({navigation, route}: any) {
         if (row > 0) {
           moveTo(idx - COLS);
         } else {
-          setZone('tabs');
+          backToChooser();
         }
       } else if (k === 'down') {
         if (idx + COLS < n) {
@@ -1007,7 +1057,7 @@ export default function BrowseScreen({navigation, route}: any) {
       } else if (inAlbums) {
         backToCollections();
       } else {
-        setZone('tabs');
+        backToChooser();
       }
     } else if (k === 'right') {
       if (col < COLS - 1 && idx + 1 < n) {
@@ -1019,7 +1069,7 @@ export default function BrowseScreen({navigation, route}: any) {
       } else if (inAlbums) {
         backToCollections();
       } else {
-        setZone('tabs');
+        backToChooser();
       }
     } else if (k === 'down') {
       if (idx + COLS < n) {
@@ -1049,7 +1099,7 @@ export default function BrowseScreen({navigation, route}: any) {
       } else if (nav.kind === 'press') {
         applySearchKey(nav.key);
       } else if (nav.kind === 'exitLeft' || nav.kind === 'exitUp') {
-        setZone('tabs');
+        backToChooser();
       } else if (nav.kind === 'exitDown') {
         setZone('back');
       } else if (nav.kind === 'exitRight') {
@@ -1069,7 +1119,7 @@ export default function BrowseScreen({navigation, route}: any) {
       if (ri > 0) {
         setSearchRes(ri - 1);
       } else {
-        setZone('tabs');
+        backToChooser();
       }
     } else if (k === 'down') {
       if (ri < n - 1) {
@@ -1092,7 +1142,7 @@ export default function BrowseScreen({navigation, route}: any) {
     const n = items.length;
     if (recentZoneRef.current === 'shuffle') {
       if (k === 'up' || k === 'left') {
-        setZone('tabs');
+        backToChooser();
       } else if (k === 'down') {
         if (n) {
           setRecentZone('grid');
@@ -1111,7 +1161,7 @@ export default function BrowseScreen({navigation, route}: any) {
       if (col > 0) {
         moveTo(idx - 1);
       } else {
-        setZone('tabs');
+        backToChooser();
       }
     } else if (k === 'right') {
       if (col < COLS - 1 && idx + 1 < n) {
@@ -1187,9 +1237,8 @@ export default function BrowseScreen({navigation, route}: any) {
       return;
     }
 
-    if (z === 'tabs') {
-      const ti = TABS.indexOf(tabRef.current);
-      const switchTab = (nextTab: string) => {
+    if (z === 'landing') {
+      const openTab = (nextTab: string) => {
         setShowLanding(false);
         setActiveTab(nextTab);
         tabRef.current = nextTab;
@@ -1233,18 +1282,35 @@ export default function BrowseScreen({navigation, route}: any) {
         playlistTopRef.current = 0;
         playlistListRef.current?.scrollToOffset({offset: 0, animated: false});
       };
-      if (k === 'left' && ti > 0) {
-        switchTab(TABS[ti - 1]);
-      } else if (k === 'right' && ti < TABS.length - 1) {
-        switchTab(TABS[ti + 1]);
-      } else if (k === 'down' || k === 'select') {
-        // Committing to the tab that is already highlighted.
-        if (showLandingRef.current) {
-          setShowLanding(false);
-          scheduleTabLoad();
+      // 2D cursor over the card grid. Clamped rather than wrapped: on a remote
+      // a wrap reads as the cursor jumping somewhere you did not ask for.
+      const i = chooserIdxRef.current;
+      const n = TABS.length;
+      const col = i % CHOOSER_COLS;
+      if (k === 'left') {
+        if (col > 0) {
+          setChooserIdx(i - 1);
         }
+      } else if (k === 'right') {
+        if (col < CHOOSER_COLS - 1 && i + 1 < n) {
+          setChooserIdx(i + 1);
+        }
+      } else if (k === 'up') {
+        if (i - CHOOSER_COLS >= 0) {
+          setChooserIdx(i - CHOOSER_COLS);
+        }
+      } else if (k === 'down') {
+        if (i + CHOOSER_COLS < n) {
+          setChooserIdx(i + CHOOSER_COLS);
+        } else if (i < n - 1) {
+          // Short last row: fall to its end rather than dead-stopping.
+          setChooserIdx(n - 1);
+        }
+      } else if (k === 'select') {
+        openTab(TABS[i]);
+        setShowLanding(false);
         setZone('content');
-        if (tabRef.current === 'search') {
+        if (TABS[i] === 'search') {
           setSearchZone('keyboard');
         }
       }
@@ -1289,7 +1355,7 @@ export default function BrowseScreen({navigation, route}: any) {
         if (col > 0) {
           moveTo(idx - 1);
         } else {
-          setZone('tabs');
+          backToChooser();
         }
       } else if (k === 'right') {
         if (col < COLS - 1 && idx + 1 < n) {
@@ -1299,7 +1365,7 @@ export default function BrowseScreen({navigation, route}: any) {
         if (row > 0) {
           moveTo(idx - COLS);
         } else {
-          setZone('tabs');
+          backToChooser();
         }
       } else if (k === 'down') {
         if (idx + COLS < n) {
@@ -1316,7 +1382,7 @@ export default function BrowseScreen({navigation, route}: any) {
         if (idx > 0) {
           moveTo(idx - 1);
         } else {
-          setZone('tabs');
+          backToChooser();
         }
       } else if (k === 'down') {
         if (idx + 1 < n) {
@@ -1325,7 +1391,7 @@ export default function BrowseScreen({navigation, route}: any) {
           setZone('back');
         }
       } else if (k === 'left') {
-        setZone('tabs');
+        backToChooser();
       } else if (k === 'select') {
         activateContent(idx);
       }
@@ -1336,7 +1402,26 @@ export default function BrowseScreen({navigation, route}: any) {
   useFocusEffect(
     useCallback(() => {
       captureDpad();
-      return subscribeNav(onNav);
+      const unsub = subscribeNav(onNav);
+
+      // BACK is a level, not an exit. Inside a section it returns to the
+      // chooser; only from the chooser itself does it leave for Now Playing,
+      // by falling through to react-navigation.
+      //
+      // BACK never reaches onNav — MainActivity only maps the D-pad, select and
+      // menu into WiiMNavKey — so this has to be its own handler.
+      const backSub = BackHandler.addEventListener('hardwareBackPress', () => {
+        if (!showLandingRef.current) {
+          backToChooser();
+          return true;
+        }
+        return false;
+      });
+
+      return () => {
+        unsub();
+        backSub.remove();
+      };
       // The D-pad listener is registered ONCE; onNav is re-created each render
       // and listing it would tear down and re-add the listener continuously.
       // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1597,38 +1682,38 @@ export default function BrowseScreen({navigation, route}: any) {
 
   return (
     <View style={styles.container}>
-      <View style={styles.tabs}>
-        {TABS.map(id => {
-          const isActive = activeTab === id;
-          const isFocused = zone === 'tabs' && isActive;
-          return (
-            <View
-              key={id}
-              style={[
-                styles.tab,
-                isActive && styles.activeTab,
-                isFocused && styles.tabFocused,
-              ]}>
-              <Text style={[styles.tabText, isActive && styles.activeTabText]}>
-                {TAB_LABELS[id]}
-              </Text>
-            </View>
-          );
-        })}
-        {!!statusMsg && <Text style={styles.statusMsg}>{statusMsg}</Text>}
-      </View>
+      {!!statusMsg && <Text style={styles.statusMsg}>{statusMsg}</Text>}
 
       {showLanding ? (
         <View style={styles.landing}>
-          <Image
-            source={require('../assets/landing.jpg')}
-            style={styles.landingArt}
-            resizeMode="contain"
-            fadeDuration={0}
-          />
-          <Text style={styles.landingHint}>
-            ← → choose a section · OK to open
-          </Text>
+          <View style={styles.chooserGrid}>
+            {Array.from(
+              {length: Math.ceil(TABS.length / CHOOSER_COLS)},
+              (_, r) => TABS.slice(r * CHOOSER_COLS, (r + 1) * CHOOSER_COLS),
+            ).map((row, r) => (
+              <View key={r} style={styles.chooserRow}>
+                {row.map((id, c) => {
+                  const i = r * CHOOSER_COLS + c;
+                  const on = chooserIdx === i;
+                  return (
+                    <Focusable
+                      key={id}
+                      focused={on}
+                      scale={1.06}
+                      ringColor={theme.accentFallback}
+                      style={styles.chooserCard}>
+                      <Icon
+                        name={TAB_ICONS[id]}
+                        size={34}
+                        color={on ? theme.accentFallback : theme.textPrimary}
+                      />
+                      <Text style={styles.chooserLabel}>{TAB_LABELS[id]}</Text>
+                    </Focusable>
+                  );
+                })}
+              </View>
+            ))}
+          </View>
         </View>
       ) : activeTab === 'albums' ? (
         albumsLoading ? (
@@ -1763,9 +1848,18 @@ export default function BrowseScreen({navigation, route}: any) {
         </Text>
       ) : null}
 
-      <View style={[styles.backButton, zone === 'back' && styles.backFocused]}>
-        <Text style={styles.backButtonText}>← Back</Text>
-      </View>
+      <Focusable
+        focused={zone === 'back'}
+        scale={1.08}
+        style={styles.backButton}>
+        <Text
+          style={[
+            styles.backButtonText,
+            zone === 'back' && styles.backFocusedText,
+          ]}>
+          ← Back
+        </Text>
+      </Focusable>
     </View>
   );
 }
@@ -1776,33 +1870,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#1a1a1a',
     paddingHorizontal: H_PAD,
     paddingVertical: 20,
-  },
-  tabs: {
-    flexDirection: 'row',
-    marginBottom: 16,
-    gap: 10,
-    alignItems: 'center',
-  },
-  tab: {
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    backgroundColor: '#333',
-    borderRadius: 8,
-    borderWidth: 3,
-    borderColor: 'transparent',
-  },
-  activeTab: {
-    backgroundColor: '#3b9eff',
-  },
-  tabFocused: {
-    borderColor: '#ffffff',
-  },
-  tabText: {
-    color: '#ddd',
-    fontWeight: 'bold',
-  },
-  activeTabText: {
-    color: '#1a1a1a',
   },
   menuHint: {
     color: '#5b6472',
@@ -1865,31 +1932,40 @@ const styles = StyleSheet.create({
   // The landing body. Deliberately plain: it exists to be instant, so it holds
   // nothing that needs fetching, measuring or decoding beyond one small bundled
   // PNG.
+  // The section chooser. Still called "landing" because it occupies the same
+  // slot, and that slot exists for a performance reason worth preserving:
+  // opening straight onto the album grid meant ~3.1s of "Loading albums…" on
+  // EVERY open, because the app fully exits when backgrounded. This paints and
+  // accepts input immediately while the tabs warm behind it.
+  //
+  // The photo that used to fill it is gone with the tab bar it depended on: the
+  // bar did the choosing and the photo was only something to look at while you
+  // chose. Now the cards do both.
   landing: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#000',
-    // Cancel the screen's horizontal padding so the black runs edge to edge.
-    // The photo is black-backgrounded, so grey margins around it would frame it
-    // as a letterboxed picture instead of letting the subject float.
-    marginHorizontal: -H_PAD,
-    paddingBottom: 12,
   },
-  // 'contain', never 'cover': the photo is portrait and the panel is landscape,
-  // so filling the screen would crop away most of the subject. Letterboxing is
-  // invisible here because the photo's own background is black and so is this
-  // one — the subject reads as floating on the screen rather than as a photo
-  // with bars. Downscaled at build time to fit this height; a 2000px source
-  // would cost a needless decode on the screen whose whole point is speed.
-  landingArt: {
-    flex: 1,
-    width: '100%',
+  chooserGrid: {
+    gap: space.md,
   },
-  landingHint: {
-    marginTop: 28,
-    color: '#8a8a8a',
-    fontSize: 20,
+  chooserRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: space.md,
+  },
+  chooserCard: {
+    width: 220,
+    height: 116,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: space.sm,
+    borderRadius: radius.md,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+  },
+  chooserLabel: {
+    ...typeScale.label,
+    color: theme.textPrimary,
   },
   loadingBox: {
     flex: 1,
@@ -2048,22 +2124,30 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     marginBottom: 12,
   },
+  // Plain "← Back", not a filled bar.
+  //
+  // It used to be a full-width solid blue slab with dark text — the loudest
+  // thing on a screen whose whole content is album art, and it read as a
+  // web page's submit button.
+  //
+  // Since it now sits on whatever colour happens to be behind it, legibility
+  // cannot come from a fill: it comes from white text plus the same shadow the
+  // Now Playing hero uses over album art. That combination holds on a white
+  // sleeve and on a black one, which a fill of any single colour would not.
   backButton: {
-    backgroundColor: '#3b9eff',
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-    borderRadius: 8,
-    alignItems: 'center',
-    marginTop: 16,
-    borderWidth: 3,
-    borderColor: 'transparent',
-  },
-  backFocused: {
-    borderColor: '#ffffff',
-    backgroundColor: '#6db8ff',
+    alignSelf: 'flex-start',
+    paddingHorizontal: 4,
+    paddingVertical: 8,
+    marginTop: 12,
   },
   backButtonText: {
-    color: '#1a1a1a',
-    fontWeight: 'bold',
+    ...typeScale.label,
+    color: theme.textPrimary,
+    ...onArt,
+  },
+  // Focused: tint to the accent and brighten. No border, no fill — the same
+  // language as every other focusable thing in the app now.
+  backFocusedText: {
+    color: theme.accentFallback,
   },
 });

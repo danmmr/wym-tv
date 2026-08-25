@@ -50,6 +50,22 @@ const PATHS = {
   album:
     'M12 3a9 9 0 100 18 9 9 0 000-18zm0 2a7 7 0 110 14 7 7 0 010-14zm0 5.2a1.8 1.8 0 100 3.6 1.8 1.8 0 000-3.6z',
   browse: 'M4 5h7v6H4zm9 0h7v6h-7zM4 13h7v6H4zm9 0h7v6h-7z',
+
+  // Browse's section chooser. Each needs a distinct SILHOUETTE, not just a
+  // distinct drawing — at 34dp across a room the outline is all that carries.
+  artists:
+    'M12 4.2a3.9 3.9 0 100 7.8 3.9 3.9 0 000-7.8zm0 2a1.9 1.9 0 110 3.8 1.9 1.9 0 010-3.8zM4.5 19.8c0-3.5 3.4-5.6 7.5-5.6s7.5 2.1 7.5 5.6v.2h-15z',
+  playlists: 'M3 5h12v2H3zm0 4.5h12v2H3zm0 4.5h8v2H3zm10 .4l6-3.4-6-3.4z',
+  collections:
+    'M6 3h12a1 1 0 011 1v2H5V4a1 1 0 011-1zM4 7.5h16a1 1 0 011 1V19a1 1 0 01-1 1H4a1 1 0 01-1-1V8.5a1 1 0 011-1zm1 2V18h14V9.5z',
+  search:
+    'M10.6 3.4a7.2 7.2 0 015.7 11.6l4.4 4.4-1.4 1.4-4.4-4.4A7.2 7.2 0 1110.6 3.4zm0 2a5.2 5.2 0 100 10.4 5.2 5.2 0 000-10.4z',
+  // The WiiM device's own stored stations and physical inputs. Optional tabs,
+  // off in this install, but the chooser is built from TABS so they must exist.
+  presets:
+    'M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z',
+  inputs:
+    'M7 2.5h2v4H7zm8 0h2v4h-2zM5 7.5h14v5a7 7 0 01-6 6.9V22h-2v-2.6a7 7 0 01-6-6.9zm2 2v3a5 5 0 0010 0v-3z',
   recent:
     'M12 3a9 9 0 109 9h-2a7 7 0 11-7-7v3.2l4.4-4.1L12 0v3zm.9 4.6v4.9l4 2.4.9-1.5-3.2-1.9V7.6z',
   settings:

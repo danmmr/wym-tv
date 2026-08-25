@@ -72,7 +72,11 @@ import {
 import type {StationKind} from '../api/plex';
 import {decodeHex} from '../api/hex';
 import {useAlbumArt} from '../hooks/useAlbumArt';
-import {useAccentColor, DEFAULT_ACCENT} from '../hooks/useAccentColor';
+import {
+  useAccentColor,
+  DEFAULT_ACCENT,
+  textAccent,
+} from '../hooks/useAccentColor';
 import Screensaver, {VISUALIZERS} from '../components/Screensaver';
 import ArtFrame from '../components/ArtFrame';
 
@@ -123,6 +127,9 @@ export default function NowPlayingScreen({navigation}: any) {
   // store; the whole player chrome tints to it, falling back to the default blue.
   useAccentColor();
   const accent = playerState.accent || DEFAULT_ACCENT;
+  // Type over the blurred cover uses the lifted variant; everything else — the
+  // rings, the cover border, the progress fill, the icons — keeps the raw one.
+  const accentText = textAccent(accent);
   // Station auto-refill bookkeeping. refillingRef guards against overlapping
   // appends; refillAtRef remembers the queue size we last refilled at so we
   // don't append again until the device reflects the growth.
@@ -797,7 +804,7 @@ export default function NowPlayingScreen({navigation}: any) {
 
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.navigate('Discovery')}>
-          <Text style={[styles.deviceButton, {color: accent}]}>
+          <Text style={[styles.deviceButton, {color: accentText}]}>
             {selectedDevice?.name}
           </Text>
         </TouchableOpacity>
@@ -813,7 +820,7 @@ export default function NowPlayingScreen({navigation}: any) {
           <Text style={styles.title} numberOfLines={2}>
             {playerState.title}
           </Text>
-          <Text style={[styles.artist, {color: accent}]} numberOfLines={1}>
+          <Text style={[styles.artist, {color: accentText}]} numberOfLines={1}>
             {playerState.trackArtist || playerState.artist}
           </Text>
           <Text style={styles.album} numberOfLines={1}>

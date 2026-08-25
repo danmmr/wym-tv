@@ -37,9 +37,9 @@ const ROWS: string[][] = [
 // The overlay's own grid. Same key names as before, so activate() is unchanged
 // and every action behaves exactly as it did — only where you reach it moved.
 const MENU_ROWS: string[][] = [
-  ['lucky', 'queue', 'album'],
-  ['libradio', 'deepcuts', 'recent'],
-  ['browse', 'settings', 'saver'],
+  ['lucky', 'queue', 'album', 'recent'],
+  ['libradio', 'deepcuts', 'browse', 'settings'],
+  ['saver', 'artframe'],
 ];
 
 // Labels and glyphs for the overlay, keyed the same way. Kept beside MENU_ROWS
@@ -54,6 +54,7 @@ const MENU_META: Record<string, {label: string; icon: IconName}> = {
   browse: {label: 'Browse', icon: 'browse'},
   settings: {label: 'Settings', icon: 'settings'},
   saver: {label: 'Screensaver', icon: 'screensaver'},
+  artframe: {label: 'Art Frame', icon: 'artframe'},
 };
 
 // The window is 960x540 dp (1080p at density 320). Vertical space is the scarce
@@ -586,6 +587,9 @@ export default function NowPlayingScreen({navigation}: any) {
       case 'saver':
         setShowScreensaver(true);
         break;
+      case 'artframe':
+        enterArtFrame();
+        break;
     }
   };
 
@@ -723,7 +727,11 @@ export default function NowPlayingScreen({navigation}: any) {
           const {row: r, col: c} = focusPosRef.current;
           activate(ROWS[r][c]);
         } else if (k === 'menu') {
-          enterArtFrame(); // the ☰/options button opens the digital art frame
+          // The ☰ button opens the actions menu — the same overlay the ⋮
+          // control opens, so the remote's menu key and the on-screen
+          // affordance do the same thing. It used to jump straight to the art
+          // frame; that moved into the overlay rather than being lost.
+          openMenu();
         }
       });
 
@@ -1059,13 +1067,19 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: color.bg,
-    // Fire TV overscan-safe insets, hand-tuned to THIS TV: the stack is shifted
-    // up by trimming the top inset and growing the bottom one. The 110 is 20%
-    // of screen height and looks wrong on paper — leave it alone until it has
-    // been re-checked on the actual panel, as its own change.
+    // Fire TV overscan-safe insets.
+    //
+    // The bottom inset used to be 110 — 20% of the 540dp screen — because the
+    // old layout ended in a footer row of Browse / Settings / Screensaver
+    // buttons that this TV's crop would otherwise eat. Those moved into the ⋮
+    // overlay, which centres itself, so nothing is anchored to the bottom edge
+    // any more and the reserve became dead space under the hero.
+    //
+    // 24 is kept rather than 0 because the transient status line still sits
+    // below the hero, and a real panel does crop a few percent.
     paddingHorizontal: 48,
     paddingTop: 12,
-    paddingBottom: 110,
+    paddingBottom: 24,
   },
   header: {
     flexDirection: 'row',
@@ -1257,6 +1271,7 @@ const styles = StyleSheet.create({
   },
   menuRow: {
     flexDirection: 'row',
+    justifyContent: 'center',
     gap: space.md,
   },
   menuItem: {

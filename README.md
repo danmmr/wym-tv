@@ -36,7 +36,7 @@ Features
 
 - Correct per-track artists on compilations
 
-- Format details — HI-RES/LOSSLESS badge, codec, bit depth, sample rate, bitrate
+- Format details — HI-RES/LOSSLESS/LOSSY badge, codec, bit depth, sample rate, bitrate
 
 - Shader screensaver with four modes, after 2 minutes idle
 

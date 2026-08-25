@@ -115,7 +115,14 @@ export default function NowPlayingScreen({navigation}: any) {
 
   // Quality tier badge from codec + depth + rate. Hi-Res = 24-bit or above
   // 48 kHz (the standard Hi-Res Audio bar); lossless codecs at CD spec get a
-  // "Lossless" pill; recognized lossy codecs get a dim tag; unknown = no badge.
+  // "Lossless" pill; recognized lossy codecs get a dim "Lossy" tag; unknown =
+  // no badge.
+  //
+  // The pill says the TIER, never the codec name. It used to fall back to the
+  // codec for lossy tracks, which meant the one case worth calling out was the
+  // only one that never said what it was — an MP3 read as "MP3" and left you to
+  // know that means lossy. The codec is not lost: formatLine() above leads with
+  // it, on the line rendered immediately beside this badge.
   const resTier = (): {label: string; bg: string; fg: string} | null => {
     const codec = (playerState.codec || '').toUpperCase();
     const depth = parseInt(playerState.bitDepth || '0', 10);
@@ -130,7 +137,7 @@ export default function NowPlayingScreen({navigation}: any) {
       return {label: 'LOSSLESS', bg: '#2f6fb0', fg: '#ffffff'};
     }
     if (lossy) {
-      return {label: codec || 'LOSSY', bg: '#3a3a3a', fg: '#d0d0d0'};
+      return {label: 'LOSSY', bg: '#3a3a3a', fg: '#d0d0d0'};
     }
     return null;
   };

@@ -50,7 +50,21 @@ const {width: SCREEN_W, height: SCREEN_H} = Dimensions.get('window');
 const COLS = 5;
 const H_PAD = 40; // container horizontal padding
 const GAP = 16;
-const CARD_W = Math.floor((SCREEN_W - H_PAD * 2 - GAP * (COLS - 1)) / COLS);
+// Room for a focused card to grow without being shaved by the list's clip.
+//
+// A focused card scales to 1.07. On a 158dp card that is ~5.5dp past each edge,
+// and a FlatList clips to its bounds, so the first and last COLUMNS lost a
+// sliver exactly as the top ROW did. There was nowhere to take it from: the old
+// CARD_W consumed the row to within 1dp (5x163 + 4x16 = 879 of 880 available).
+//
+// So reserve it in the card width itself and spend it as content padding,
+// rather than adding padding on top of a row that is already full — which
+// would push the fifth column onto a second line.
+const FOCUS_PAD = 12;
+
+const CARD_W = Math.floor(
+  (SCREEN_W - H_PAD * 2 - FOCUS_PAD * 2 - GAP * (COLS - 1)) / COLS,
+);
 
 // Fixed card geometry so row heights are deterministic — required for exact
 // getItemLayout and smooth, row-stepped scrolling.
@@ -60,6 +74,19 @@ const ART_H = CARD_W - 2 * (CARD_PAD + CARD_BORDER); // square cover
 const CAPTION_H = 42; // title + artist (fixed)
 const CARD_H = 2 * CARD_BORDER + 2 * CARD_PAD + ART_H + CAPTION_H;
 const ROW_H = CARD_H + GAP; // vertical pitch between rows
+
+// Headroom above the first row, INSIDE each list's content.
+//
+// A focused card scales to 1.07, which grows it ~7dp past its own top edge, and
+// a FlatList clips to its bounds — so the top row was shaved. It only showed up
+// once the tab bar was removed, because the bar had been donating the space;
+// Recent looked fine throughout only because its Shuffle control sits in it.
+//
+// It must be LESS THAN GAP. scrollToOffset still targets `top * ROW_H`, so at
+// any scrolled row the previous row's bottom lands at (LIST_TOP - GAP) relative
+// to the viewport — above it, and therefore invisible, only while this is the
+// smaller of the two. At 12 against a 16dp gap there is no peeking row.
+const LIST_TOP = 12;
 
 // Roughly how many album rows fit in the list viewport (used to decide when a
 // move needs to scroll). Subtracts the tab bar / back button / paddings.
@@ -1446,13 +1473,14 @@ export default function BrowseScreen({navigation, route}: any) {
       numColumns={COLS}
       columnWrapperStyle={styles.row}
       style={styles.list}
+      contentContainerStyle={styles.listContent}
       initialNumToRender={20}
       windowSize={7}
       getItemLayout={(_data, i) => ({
         // FlatList with numColumns feeds whole rows to the virtualizer, so `i`
         // here is the ROW index — pitch is exactly ROW_H per row.
         length: ROW_H,
-        offset: ROW_H * i,
+        offset: LIST_TOP + ROW_H * i,
         index: i,
       })}
     />
@@ -1494,9 +1522,10 @@ export default function BrowseScreen({navigation, route}: any) {
       keyExtractor={item => item.ratingKey}
       extraData={index}
       style={styles.resultsList}
+      contentContainerStyle={styles.listContent}
       getItemLayout={(_d, i) => ({
         length: PLAYLIST_H,
-        offset: PLAYLIST_H * i,
+        offset: LIST_TOP + PLAYLIST_H * i,
         index: i,
       })}
     />
@@ -1536,11 +1565,12 @@ export default function BrowseScreen({navigation, route}: any) {
         numColumns={COLS}
         columnWrapperStyle={styles.row}
         style={styles.list}
+        contentContainerStyle={styles.listContent}
         initialNumToRender={20}
         windowSize={7}
         getItemLayout={(_data, i) => ({
           length: ROW_H,
-          offset: ROW_H * i,
+          offset: LIST_TOP + ROW_H * i,
           index: i,
         })}
         ListEmptyComponent={
@@ -1593,11 +1623,12 @@ export default function BrowseScreen({navigation, route}: any) {
         numColumns={COLS}
         columnWrapperStyle={styles.row}
         style={styles.list}
+        contentContainerStyle={styles.listContent}
         initialNumToRender={20}
         windowSize={7}
         getItemLayout={(_data, i) => ({
           length: ROW_H,
-          offset: ROW_H * i,
+          offset: LIST_TOP + ROW_H * i,
           index: i,
         })}
         ListEmptyComponent={
@@ -1667,9 +1698,10 @@ export default function BrowseScreen({navigation, route}: any) {
           keyExtractor={item => item.ratingKey}
           extraData={`${searchZone}:${searchResIdx}`}
           style={styles.resultsList}
+          contentContainerStyle={styles.listContent}
           getItemLayout={(_d, i) => ({
             length: RESULT_H,
-            offset: RESULT_H * i,
+            offset: LIST_TOP + RESULT_H * i,
             index: i,
           })}
           ListEmptyComponent={
@@ -1738,15 +1770,22 @@ export default function BrowseScreen({navigation, route}: any) {
           </View>
         ) : recentAlbums.length ? (
           <View style={styles.recentWrap}>
-            <View
-              style={[
-                styles.shuffleBtn,
-                zone === 'content' &&
-                  recentZone === 'shuffle' &&
-                  styles.shuffleBtnFocused,
-              ]}>
-              <Text style={styles.shuffleText}>🎲 Shuffle recently added</Text>
-            </View>
+            <Focusable
+              focused={zone === 'content' && recentZone === 'shuffle'}
+              scale={1.06}
+              ringColor={theme.accentFallback}
+              style={styles.shuffleBtn}>
+              <Icon
+                name="shuffle"
+                size={22}
+                color={
+                  zone === 'content' && recentZone === 'shuffle'
+                    ? theme.accentFallback
+                    : theme.textPrimary
+                }
+              />
+              <Text style={styles.shuffleText}>Shuffle</Text>
+            </Focusable>
             {albumGrid(
               recentAlbums,
               recentListRef,
@@ -1818,6 +1857,7 @@ export default function BrowseScreen({navigation, route}: any) {
           }
           keyExtractor={(_, i) => `preset-${i}`}
           style={styles.list}
+          contentContainerStyle={styles.listContent}
         />
       ) : (
         <FlatList
@@ -1828,6 +1868,7 @@ export default function BrowseScreen({navigation, route}: any) {
           }
           keyExtractor={item => String(item)}
           style={styles.list}
+          contentContainerStyle={styles.listContent}
         />
       )}
 
@@ -1885,6 +1926,12 @@ const styles = StyleSheet.create({
   },
   list: {
     flex: 1,
+  },
+  // The reserve that FOCUS_PAD and LIST_TOP set aside, actually spent. CARD_W
+  // is computed net of the horizontal half, so the row still fits.
+  listContent: {
+    paddingTop: LIST_TOP,
+    paddingHorizontal: FOCUS_PAD,
   },
   row: {
     gap: GAP,
@@ -2095,25 +2142,24 @@ const styles = StyleSheet.create({
   recentWrap: {
     flex: 1,
   },
+  // Shuffle, as a control rather than a slab. It used to be a solid violet pill
+  // with an emoji die in it — the loudest object on a screen of album art, and
+  // the emoji was drawn by Noto Color Emoji so it could never be tinted to
+  // match anything. The concept was right; the presentation was doing too much.
   shuffleBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
     alignSelf: 'flex-start',
-    backgroundColor: '#5b2bd9',
-    paddingHorizontal: 22,
-    paddingVertical: 10,
-    borderRadius: 8,
+    gap: space.sm,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
     marginBottom: 14,
-    borderWidth: 3,
-    borderColor: 'transparent',
-  },
-  shuffleBtnFocused: {
-    borderColor: '#ffffff',
-    backgroundColor: '#7a4dff',
-    transform: [{scale: 1.05}],
+    borderRadius: radius.md,
+    backgroundColor: 'rgba(255,255,255,0.06)',
   },
   shuffleText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: 'bold',
+    ...typeScale.label,
+    color: theme.textPrimary,
   },
   artistAlbumsWrap: {
     flex: 1,

@@ -41,6 +41,10 @@ const PATHS = {
   radio:
     'M12 8.2a3.8 3.8 0 100 7.6 3.8 3.8 0 000-7.6zm0 2a1.8 1.8 0 110 3.6 1.8 1.8 0 010-3.6zM6.3 4.9L7.7 6.3a8 8 0 000 11.4l-1.4 1.4a10 10 0 010-14.2zm11.4 0a10 10 0 010 14.2l-1.4-1.4a8 8 0 000-11.4z',
   // Feeling Lucky: a die showing five pips.
+  // Shuffle: the two crossing paths with arrowheads. Reads as shuffle at a
+  // glance in a way a die does not — a die is "random", shuffle is "reorder".
+  shuffle:
+    'M14.8 5.4l1.4-1.4 3.6 3.6-3.6 3.6-1.4-1.4 1.2-1.2h-2.2c-1 0-1.7.4-2.4 1.4l-.9 1.3-1.2-1.7.6-.9c1-1.5 2.3-2.1 3.9-2.1H16zM3.5 7h2.2c1.6 0 2.9.6 3.9 2.1l4 5.8c.7 1 1.4 1.4 2.4 1.4H18l-1.2-1.2 1.4-1.4 3.6 3.6-3.6 3.6-1.4-1.4 1.2-1.2h-2c-1.6 0-2.9-.6-3.9-2.1l-4-5.8C7.4 9.4 6.7 9 5.7 9H3.5zm0 9.9h2.2c1 0 1.7-.4 2.4-1.4l.6-.9 1.2 1.7-.3.4c-1 1.5-2.3 2.1-3.9 2.1H3.5z',
   dice: 'M5 5h14a1 1 0 011 1v12a1 1 0 01-1 1H5a1 1 0 01-1-1V6a1 1 0 011-1zm3 2.8a1.3 1.3 0 100 2.6 1.3 1.3 0 000-2.6zm8 0a1.3 1.3 0 100 2.6 1.3 1.3 0 000-2.6zm-4 3.9a1.3 1.3 0 100 2.6 1.3 1.3 0 000-2.6zm-4 3.9a1.3 1.3 0 100 2.6 1.3 1.3 0 000-2.6zm8 0a1.3 1.3 0 100 2.6 1.3 1.3 0 000-2.6z',
   // Deep Cuts gets its own glyph. It shared the radio icon at first, which made
   // the two station entries indistinguishable in the menu — the labels were

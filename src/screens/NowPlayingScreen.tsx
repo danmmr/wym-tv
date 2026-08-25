@@ -19,6 +19,7 @@ import {useFocusEffect} from '@react-navigation/native';
 import Icon from '../components/Icon';
 import type {IconName} from '../components/Icon';
 import Focusable from '../components/Focusable';
+import Scrim from '../components/Scrim';
 import {color, motion, onArt, radius, space, type} from '../theme';
 
 // 2D control grid for D-pad navigation: left/right within a row, up/down
@@ -48,7 +49,7 @@ const MENU_META: Record<string, {label: string; icon: IconName}> = {
   queue: {label: 'Queue', icon: 'queue'},
   album: {label: 'Album', icon: 'album'},
   libradio: {label: 'Library Radio', icon: 'radio'},
-  deepcuts: {label: 'Deep Cuts', icon: 'radio'},
+  deepcuts: {label: 'Deep Cuts', icon: 'deepcuts'},
   recent: {label: 'Recently Added', icon: 'recent'},
   browse: {label: 'Browse', icon: 'browse'},
   settings: {label: 'Settings', icon: 'settings'},
@@ -138,39 +139,20 @@ export default function NowPlayingScreen({navigation}: any) {
     return `${m}:${s.toString().padStart(2, '0')}`;
   };
 
-  // Build a "FLAC · 16-bit · 44.1 kHz · 320 kbps" line. Codec comes from Plex;
-  // depth/rate/bitrate from the WiiM metaInfo. Each part shows only if known.
-  const formatLine = (): string => {
-    const parts: string[] = [];
-    if (playerState.codec) {
-      parts.push(playerState.codec);
-    }
-    if (playerState.bitDepth) {
-      parts.push(`${playerState.bitDepth}-bit`);
-    }
-    if (playerState.sampleRate) {
-      const hz = parseInt(playerState.sampleRate, 10);
-      if (hz > 0) {
-        const khz = hz / 1000;
-        parts.push(`${Number.isInteger(khz) ? khz : khz.toFixed(1)} kHz`);
-      }
-    }
-    if (playerState.bitRate) {
-      parts.push(`${playerState.bitRate} kbps`);
-    }
-    return parts.join('  ·  ');
-  };
-
   // Quality tier badge from codec + depth + rate. Hi-Res = 24-bit or above
   // 48 kHz (the standard Hi-Res Audio bar); lossless codecs at CD spec get a
   // "Lossless" pill; recognized lossy codecs get a dim "Lossy" tag; unknown =
   // no badge.
   //
-  // The pill says the TIER, never the codec name. It used to fall back to the
-  // codec for lossy tracks, which meant the one case worth calling out was the
-  // only one that never said what it was — an MP3 read as "MP3" and left you to
-  // know that means lossy. The codec is not lost: formatLine() above leads with
-  // it, on the line rendered immediately beside this badge.
+  // The pill says the TIER and nothing else. It used to fall back to the codec
+  // name for lossy tracks, which meant the one case worth calling out was the
+  // only one that never said what it was — an MP3 read as "MP3".
+  //
+  // It also used to sit beside a formatLine() reading "FLAC · 16-bit · 44.1 kHz
+  // · 564 kbps". That is gone by request: the question this screen answers from
+  // the couch is whether the track is any good, not what its bit depth is.
+  // codec/bitDepth/sampleRate are still fetched — resTier needs them to decide
+  // the tier — they are simply no longer printed.
   const resTier = (): {label: string; bg: string; fg: string} | null => {
     const codec = (playerState.codec || '').toUpperCase();
     const depth = parseInt(playerState.bitDepth || '0', 10);
@@ -814,7 +796,6 @@ export default function NowPlayingScreen({navigation}: any) {
   }
 
   const tier = resTier();
-  const format = formatLine();
   const progressPct =
     playerState.duration > 0
       ? Math.min(100, (playerState.currentPos / playerState.duration) * 100)
@@ -830,12 +811,9 @@ export default function NowPlayingScreen({navigation}: any) {
           blurRadius={8}
         />
       ) : null}
-      {/* Two stacked scrims instead of one flat 55% wash: the old scrim dimmed
-          the whole frame equally, including the top where there is nothing to
-          protect. This keeps the art bright up top and puts the darkness under
-          the metadata, where the contrast is actually needed. */}
-      <View style={styles.scrimTop} pointerEvents="none" />
-      <View style={styles.scrimBottom} pointerEvents="none" />
+      {/* Bottom-weighted, so the art stays bright up top and the darkness sits
+          under the metadata where the contrast is actually needed. */}
+      <Scrim />
 
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.navigate('Discovery')}>
@@ -862,16 +840,13 @@ export default function NowPlayingScreen({navigation}: any) {
             {playerState.album}
           </Text>
 
-          {tier || format ? (
+          {tier ? (
             <View style={styles.formatRow}>
-              {tier ? (
-                <View style={[styles.badge, {backgroundColor: tier.bg}]}>
-                  <Text style={[styles.badgeText, {color: tier.fg}]}>
-                    {tier.label}
-                  </Text>
-                </View>
-              ) : null}
-              {format ? <Text style={styles.format}>{format}</Text> : null}
+              <View style={[styles.badge, {backgroundColor: tier.bg}]}>
+                <Text style={[styles.badgeText, {color: tier.fg}]}>
+                  {tier.label}
+                </Text>
+              </View>
             </View>
           ) : null}
 
@@ -932,11 +907,6 @@ export default function NowPlayingScreen({navigation}: any) {
                 color={focusedKey === 'vdown' ? accent : color.textPrimary}
               />
             </Focusable>
-            <VolumeBar
-              shown={volumeShown || focusRow === 1}
-              value={playerState.volume}
-              accent={accent}
-            />
             <Focusable
               focused={focusedKey === 'vup'}
               ringColor={accent}
@@ -947,6 +917,11 @@ export default function NowPlayingScreen({navigation}: any) {
                 color={focusedKey === 'vup' ? accent : color.textPrimary}
               />
             </Focusable>
+            <VolumeBar
+              shown={volumeShown || focusRow === 1}
+              value={playerState.volume}
+              accent={accent}
+            />
           </View>
         </View>
       </View>
@@ -1118,22 +1093,6 @@ const styles = StyleSheet.create({
     bottom: 0,
     transform: [{scale: 1.1}],
   },
-  // Light everywhere, so the cover stays a cover and not a mood board.
-  scrimTop: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.30)',
-  },
-  // Heavier under the metadata column. Two flat layers rather than a real
-  // gradient: a gradient needs a library this repo does not have, and at this
-  // blur radius the seam is invisible.
-  scrimBottom: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
-    height: '62%',
-    backgroundColor: 'rgba(0,0,0,0.42)',
-  },
   hero: {
     flex: 1,
     flexDirection: 'row',
@@ -1201,14 +1160,6 @@ const styles = StyleSheet.create({
   badgeText: {
     ...type.badge,
   },
-  // Brighter than the other dim greys + a shadow so the resolution/bitrate line
-  // stays legible over bright album-art backgrounds (it used to vanish).
-  format: {
-    ...type.caption,
-    color: color.textDetail,
-    letterSpacing: 1,
-    ...onArt,
-  },
   progressRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1246,9 +1197,19 @@ const styles = StyleSheet.create({
     marginTop: space.md,
     gap: space.md,
   },
+  // The two speaker buttons sit ADJACENT, like the transport row above them,
+  // and the bar is positioned absolutely beside them rather than laid out
+  // between them.
+  //
+  // Two earlier goes at this were both wrong on the TV. flex:1 stretched the
+  // row the full width of the screen and stranded the speakers at opposite
+  // edges; a fixed 260dp bar still left a dead gap between them whenever it was
+  // faded out. An opacity-0 view keeps its space — the fix is for the bar not
+  // to occupy the row at all.
   volumeRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    alignSelf: 'flex-start',
     marginTop: space.sm,
     gap: space.sm,
   },
@@ -1263,11 +1224,14 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.06)',
   },
   volumeBar: {
-    flex: 1,
+    // Absolute, so the row's width never depends on whether it is showing.
+    // left clears the two 52dp buttons plus their 8dp gap, with a little air.
+    position: 'absolute',
+    left: 132,
+    width: 260,
     height: 4,
     backgroundColor: color.track,
     borderRadius: 2,
-    marginHorizontal: space.sm,
   },
   volumeFill: {
     height: '100%',

@@ -42,6 +42,11 @@ const PATHS = {
     'M12 8.2a3.8 3.8 0 100 7.6 3.8 3.8 0 000-7.6zm0 2a1.8 1.8 0 110 3.6 1.8 1.8 0 010-3.6zM6.3 4.9L7.7 6.3a8 8 0 000 11.4l-1.4 1.4a10 10 0 010-14.2zm11.4 0a10 10 0 010 14.2l-1.4-1.4a8 8 0 000-11.4z',
   // Feeling Lucky: a die showing five pips.
   dice: 'M5 5h14a1 1 0 011 1v12a1 1 0 01-1 1H5a1 1 0 01-1-1V6a1 1 0 011-1zm3 2.8a1.3 1.3 0 100 2.6 1.3 1.3 0 000-2.6zm8 0a1.3 1.3 0 100 2.6 1.3 1.3 0 000-2.6zm-4 3.9a1.3 1.3 0 100 2.6 1.3 1.3 0 000-2.6zm-4 3.9a1.3 1.3 0 100 2.6 1.3 1.3 0 000-2.6zm8 0a1.3 1.3 0 100 2.6 1.3 1.3 0 000-2.6z',
+  // Deep Cuts gets its own glyph. It shared the radio icon at first, which made
+  // the two station entries indistinguishable in the menu — the labels were
+  // doing all the work and the icons none.
+  deepcuts:
+    'M3 14.5c1.6 0 1.6-2 3.2-2s1.6 2 3.2 2 1.6-2 3.2-2 1.6 2 3.2 2 1.6-2 3.2-2 1.6 2 3.2 2v2c-1.6 0-1.6-2-3.2-2s-1.6 2-3.2 2-1.6-2-3.2-2-1.6 2-3.2 2-1.6-2-3.2-2-1.6 2-3.2 2zM7 4h1.8v6.6H7zm4.1 2h1.8v4.6h-1.8zm4.1-3H17v7.6h-1.8z',
   album:
     'M12 3a9 9 0 100 18 9 9 0 000-18zm0 2a7 7 0 110 14 7 7 0 010-14zm0 5.2a1.8 1.8 0 100 3.6 1.8 1.8 0 000-3.6z',
   browse: 'M4 5h7v6H4zm9 0h7v6h-7zM4 13h7v6H4zm9 0h7v6h-7z',

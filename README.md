@@ -95,6 +95,7 @@ New here? **[QUICKSTART.md](QUICKSTART.md)** walks the whole path from clone to 
 6. [Build, test and deploy](#build-test-and-deploy)
 7. [Troubleshooting](#troubleshooting)
 8. [Architecture notes](#architecture-notes)
+9. [Release notes](#release-notes)
 
 ---
 
@@ -454,6 +455,44 @@ Two conventions are load-bearing throughout the screens:
 
 - **D-pad listeners are registered once** and read live values through refs, never from render scope. A handler that closes over render-scope state reads first-render values forever, which is what once made Browse's play silently do nothing.
 - **The queue name on the device is `WiiMTV`**, not `WyM TV`. It is the device-side handle that station refill and jump-to-track address the queue by; renaming it would orphan whatever queue is playing when the new build lands.
+
+---
+
+## Release notes
+
+### v1.1.0 — 2026-08-26
+
+**Search moved to the Now Playing menu.** It is no longer a tab. A full-width
+bar sits above the nine tiles on the ⋮ actions overlay and opens Browse with
+the keyboard already up, so the library tabs are five, not six.
+
+- **The keyboard has digits.** `0`–`9` on their own row. Without them a title
+  that *is* a number — *1983*, *August 53rd*, *17 Years In Ektachrome* — was
+  reachable only by a substring that dodged it.
+- **Accented text folds to ASCII**, both sides of the compare, so `eliane`
+  finds *Éliane Radigue* and `oxn` finds *ØXN*. Upper-case accents are covered
+  explicitly: Hermes ships without Intl, so on-device case conversion is
+  ASCII-only and `'Ólafur'.toLowerCase()` returns unchanged.
+- **Typing keeps up with the remote.** The keyboard no longer repaints on every
+  character, and each new character narrows the previous result set instead of
+  rescanning the catalog. Backspace still does a full scan.
+
+**Playlists is a grid.** Plex builds a composite mosaic for a playlist exactly
+as it does for a collection, so the art was already there. It was the one
+library tab still rendered as a vertical list of text rows.
+
+**The 2026-08-25 presentation pass**, released here for the first time:
+
+- Now Playing rebuilt as an art-forward hero — large centred cover, transport
+  icons only, and nine secondary actions behind a ⋮ overlay
+- Browse opens on a section chooser instead of a tab bar
+- Vector icons throughout, replacing emoji rendered as text
+- The digital art frame joins the screensaver rotation as its fifth mode
+- The quality badge reads `LOSSY` rather than the codec name
+
+### v1.0.0 — 2026-08-23
+
+First public release. Signed APK attached.
 
 ---
 

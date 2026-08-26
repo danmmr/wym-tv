@@ -34,6 +34,7 @@ import {
 } from '../api/plex';
 import {usePlayerStore} from '../store/playerStore';
 import {inputsEnabled, presetsEnabled} from '../config/display';
+import {fold} from './searchText';
 import {navKeyboard, scrollTopFor, KeyCell, TABS} from './browseNav';
 import Icon from '../components/Icon';
 import type {IconName} from '../components/Icon';
@@ -98,9 +99,6 @@ const VISIBLE_ROWS = Math.max(1, Math.floor(LIST_H / ROW_H));
 const RESULT_H = 60;
 const RES_VISIBLE = Math.max(1, Math.floor(LIST_H / RESULT_H));
 
-// Playlist rows are the same pitch as artist results so they reuse RES_VISIBLE.
-const PLAYLIST_H = RESULT_H;
-
 // TABS (which tabs are offered, in bar order) lives in browseNav.ts with the
 // rest of the pure navigation data, so it can be unit tested.
 const TAB_LABELS: Record<string, string> = {
@@ -109,7 +107,6 @@ const TAB_LABELS: Record<string, string> = {
   playlists: 'Playlists',
   collections: 'Collections',
   artists: 'Artists',
-  search: 'Search',
   presets: 'Presets',
   inputs: 'Inputs',
 };
@@ -119,11 +116,17 @@ const TAB_LABELS: Record<string, string> = {
 // moving vertically between rows of different lengths.
 type Key = KeyCell;
 const letterRow = (s: string): Key[] => s.split('').map(c => ({l: c, v: c}));
+// Narrow keys, so ten digits occupy about the same width as seven letters.
+const digitRow = (s: string): Key[] =>
+  s.split('').map(c => ({l: c, v: c, n: true}));
 const KEY_ROWS: Key[][] = [
   letterRow('ABCDEFG'),
   letterRow('HIJKLMN'),
   letterRow('OPQRSTU'),
   letterRow('VWXYZ'),
+  // Without this row a title that IS a number — 1983, August 53rd, 17 Years
+  // In Ektachrome — could only be reached by a substring that dodged it.
+  digitRow('0123456789'),
   [
     {l: 'SPACE', v: ' ', act: 'space'},
     {l: 'DEL', v: '', act: 'del'},
@@ -147,7 +150,6 @@ const TAB_ICONS: Record<string, IconName> = {
   recent: 'recent',
   playlists: 'playlists',
   collections: 'collections',
-  search: 'search',
   presets: 'presets',
   inputs: 'inputs',
 };
@@ -254,6 +256,106 @@ const CollectionCard = React.memo(function CollectionCard({
   );
 });
 
+// The on-screen keyboard, memoised.
+//
+// Typing changes the query and therefore the results, but it does NOT move the
+// key cursor — you press OK on the same key repeatedly. Left inline, every
+// character still re-rendered all 38 Focusables, each of which drives a spring
+// animation, on the JS thread in the same tick as the press. That was most of
+// what made typing feel behind the remote.
+//
+// Props are deliberately three primitives rather than an object, so the memo
+// compares by value and a new object literal per render cannot defeat it.
+const SearchKeyboard = React.memo(function SearchKeyboard({
+  row,
+  col,
+  active,
+}: {
+  row: number;
+  col: number;
+  active: boolean;
+}) {
+  return (
+    <View style={styles.keyboard}>
+      {KEY_ROWS.map((keys, ri) => (
+        <View key={ri} style={styles.kbRow}>
+          {keys.map((key, ci) => {
+            const f = active && row === ri && col === ci;
+            return (
+              <Focusable
+                key={ci}
+                focused={f}
+                scale={1.14}
+                ringColor={theme.accentFallback}
+                style={
+                  key.act
+                    ? styles.keyWideBox
+                    : key.n
+                    ? (styles.keyNarrow as ViewStyle)
+                    : (styles.key as ViewStyle)
+                }>
+                <Text style={[styles.keyText, f && styles.keyTextFocused]}>
+                  {key.l}
+                </Text>
+              </Focusable>
+            );
+          })}
+        </View>
+      ))}
+    </View>
+  );
+});
+
+// Memoised playlist cell — the fourth grid of the same geometry. Playlists used
+// to be the one library tab that was a vertical list of rows, which made it
+// read as a settings screen sitting between three grids of art. Plex builds a
+// composite mosaic for a playlist exactly as it does for a collection, so the
+// art was already there and unused.
+const PlaylistCard = React.memo(function PlaylistCard({
+  playlist,
+  focused,
+}: {
+  playlist: PlexPlaylist;
+  focused: boolean;
+}) {
+  const capped = playlist.count > PLAYLIST_MAX;
+  return (
+    <View style={[styles.card, focused && styles.cardFocused]}>
+      {playlist.thumb ? (
+        <Image
+          source={{uri: artUrl(playlist.thumb, 320)}}
+          style={styles.cardArt}
+        />
+      ) : (
+        <View style={[styles.cardArt, styles.cardArtPlaceholder]}>
+          <Text style={styles.cardArtPlaceholderText}>
+            {(playlist.title || '?').charAt(0).toUpperCase()}
+          </Text>
+        </View>
+      )}
+      <View style={styles.cardTitleRow}>
+        {/* A smart playlist is a saved query, not a hand-made list, and that
+            difference decides whether its contents will have changed since
+            last time — so it survives the move to a grid. It is an Icon and
+            not the ⚙ character: Fire OS draws that from Noto Color Emoji,
+            which is what made the old list's titles fail to line up. */}
+        <Icon
+          name={playlist.smart ? 'settings' : 'playlists'}
+          size={12}
+          color={focused ? theme.accentFallback : theme.textDim}
+        />
+        <Text style={styles.cardTitleFlex} numberOfLines={1}>
+          {playlist.title}
+        </Text>
+      </View>
+      <Text style={styles.cardArtist} numberOfLines={1}>
+        {playlist.count ? `${playlist.count} tracks` : 'empty'}
+        {capped ? ` · first ${PLAYLIST_MAX}` : ''}
+      </Text>
+    </View>
+  );
+});
+
 export default function BrowseScreen({navigation, route}: any) {
   const selectedDevice = useDeviceStore(s => s.selectedDevice);
   // Optionally deep-linked to a specific tab (e.g. the Now Playing "Recently
@@ -272,6 +374,8 @@ export default function BrowseScreen({navigation, route}: any) {
   //
   // A deep link (the Now Playing "Recently Added" button) skips it: that press
   // already named a destination, so showing a chooser would just be in the way.
+  // The overlay's search bar deep-links here with the keyboard already up.
+  const openSearch: boolean = !!route?.params?.openSearch;
   const [showLanding, setShowLandingState] = useState(
     !route?.params?.initialTab,
   );
@@ -282,6 +386,25 @@ export default function BrowseScreen({navigation, route}: any) {
     Math.max(0, TABS.indexOf('albums')),
   );
   const chooserIdxRef = useRef(Math.max(0, TABS.indexOf('albums')));
+  // The landing is now two things stacked: a search bar, and below it either
+  // the section tiles or the search body (keyboard + results). `landingMode`
+  // says which of the two is under the bar; `landingFocus` says whether the
+  // cursor is on the bar or in whatever is below it.
+  const [landingMode, setLandingModeState] = useState<'tiles' | 'search'>(
+    openSearch ? 'search' : 'tiles',
+  );
+  const landingModeRef = useRef<'tiles' | 'search'>(
+    openSearch ? 'search' : 'tiles',
+  );
+  const setLandingMode = (m: 'tiles' | 'search') => {
+    landingModeRef.current = m;
+    setLandingModeState(m);
+  };
+  // Search is ACTIVE when the landing is showing its keyboard and results.
+  // The key and row focus flags hang off this rather than off `zone`, which is
+  // 'landing' here — reading `zone === 'content'` is what left the keyboard
+  // navigating an invisible cursor.
+  const searchActive = showLanding && landingMode === 'search';
   const setChooserIdx = (i: number) => {
     chooserIdxRef.current = i;
     setChooserIdxState(i);
@@ -381,7 +504,6 @@ export default function BrowseScreen({navigation, route}: any) {
   const recentZoneRef = useRef<'shuffle' | 'grid'>('grid');
   const playlistsRef = useRef<PlexPlaylist[]>([]);
   const playlistListRef = useRef<FlatList<PlexPlaylist>>(null);
-  const playlistTopRef = useRef(0); // first playlist row scrolled into view
   const presetsRef = useRef<any[]>([]);
   const inputsRef = useRef<any[]>([]);
   const artistViewRef = useRef<'grid' | 'albums'>('grid');
@@ -449,20 +571,52 @@ export default function BrowseScreen({navigation, route}: any) {
   // One lowercased "title\nartist" haystack per album, built once when the
   // catalog lands. Without it every keystroke re-lowercased both fields of all
   // ~5.6k albums — over 11k throwaway strings per key press on Hermes.
+  // Folded once per catalog load, not per keystroke: this is ~4.5k strings and
+  // the query changes on every press.
   const searchIndex = useMemo(
-    () => catalog.map(a => `${a.title}\n${a.artist}`.toLowerCase()),
+    () => catalog.map(a => fold(`${a.title}\n${a.artist}`)),
     [catalog],
   );
+  // The previous query and the catalog positions it matched, so that adding a
+  // character narrows that set instead of rescanning ~5.7k strings.
+  //
+  // This is sound because matching is a plain substring test: if a query gains
+  // a character at the end, anything that matches the longer query also matched
+  // the shorter one, so the new result set is always a SUBSET of the old. It
+  // only applies when the new query extends the old one — deleting a character
+  // widens the set, and falls back to a full scan.
+  //
+  // Keyed on the searchIndex identity so a catalog reload cannot be answered
+  // from positions that referred to the previous one.
+  const narrowRef = useRef<{src: string[]; q: string; idx: number[]} | null>(
+    null,
+  );
   const filteredSearch = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase();
+    const q = fold(searchQuery.trim());
     if (!q) {
+      narrowRef.current = null;
       return catalog;
     }
-    const out: PlexAlbum[] = [];
-    for (let i = 0; i < catalog.length; i++) {
-      if (searchIndex[i].indexOf(q) !== -1) {
-        out.push(catalog[i]);
+    const prev = narrowRef.current;
+    const idx: number[] = [];
+    if (prev && prev.src === searchIndex && q.startsWith(prev.q)) {
+      for (let n = 0; n < prev.idx.length; n++) {
+        const i = prev.idx[n];
+        if (searchIndex[i].indexOf(q) !== -1) {
+          idx.push(i);
+        }
       }
+    } else {
+      for (let i = 0; i < searchIndex.length; i++) {
+        if (searchIndex[i].indexOf(q) !== -1) {
+          idx.push(i);
+        }
+      }
+    }
+    narrowRef.current = {src: searchIndex, q, idx};
+    const out: PlexAlbum[] = [];
+    for (let n = 0; n < idx.length; n++) {
+      out.push(catalog[idx[n]]);
     }
     return out;
   }, [catalog, searchIndex, searchQuery]);
@@ -494,8 +648,9 @@ export default function BrowseScreen({navigation, route}: any) {
   const TAB_LOAD_DELAY = 250;
 
   const loadForTab = (t: string) => {
-    // Artists and Search both need the full catalog.
-    if (t === 'artists' || t === 'search') {
+    // Artists needs the full catalog; so does the search bar, which is warmed
+    // on mount rather than by a tab.
+    if (t === 'artists') {
       loadLibrary();
     } else if (t === 'recent') {
       loadRecent();
@@ -746,6 +901,8 @@ export default function BrowseScreen({navigation, route}: any) {
       ? listRef
       : tabRef.current === 'recent'
       ? recentListRef
+      : tabRef.current === 'playlists'
+      ? playlistListRef
       : tabRef.current === 'collections'
       ? collectionViewRef.current === 'albums'
         ? collectionAlbumListRef
@@ -760,25 +917,12 @@ export default function BrowseScreen({navigation, route}: any) {
     tabRef.current === 'albums' ||
     tabRef.current === 'recent' ||
     tabRef.current === 'artists' ||
+    tabRef.current === 'playlists' ||
     tabRef.current === 'collections';
 
   const moveTo = (i: number) => {
     setIndex(i);
     idxRef.current = i;
-    // Playlists are a long vertical list (presets/inputs are short enough that
-    // they never scroll), so they need the same keep-focus-visible stepping the
-    // album grid gets — just by single rows instead of grid rows.
-    if (tabRef.current === 'playlists') {
-      const top = scrollTopFor(i, playlistTopRef.current, RES_VISIBLE);
-      if (top !== playlistTopRef.current) {
-        playlistTopRef.current = top;
-        playlistListRef.current?.scrollToOffset({
-          offset: top * PLAYLIST_H,
-          animated: true,
-        });
-      }
-      return;
-    }
     if (!isAlbumGridActive()) {
       return;
     }
@@ -1127,9 +1271,10 @@ export default function BrowseScreen({navigation, route}: any) {
       } else if (nav.kind === 'press') {
         applySearchKey(nav.key);
       } else if (nav.kind === 'exitLeft' || nav.kind === 'exitUp') {
-        backToChooser();
+        // Nothing to the left of or above the keyboard: the query bar is a
+        // readout, not a control, and BACK is the way out.
       } else if (nav.kind === 'exitDown') {
-        setZone('back');
+        // Nothing below the keyboard on this screen; BACK is the way out.
       } else if (nav.kind === 'exitRight') {
         // Only cross into the results column when there is something there.
         if (filteredSearchRef.current.length) {
@@ -1146,14 +1291,10 @@ export default function BrowseScreen({navigation, route}: any) {
     if (k === 'up') {
       if (ri > 0) {
         setSearchRes(ri - 1);
-      } else {
-        backToChooser();
       }
     } else if (k === 'down') {
       if (ri < n - 1) {
         setSearchRes(ri + 1);
-      } else {
-        setZone('back');
       }
     } else if (k === 'left') {
       setSearchZone('keyboard');
@@ -1218,6 +1359,14 @@ export default function BrowseScreen({navigation, route}: any) {
   // on the tabs/back zones and on the non-album tabs, so MENU does nothing
   // there rather than opening a detail view for something that isn't an album.
   const focusedAlbum = (): PlexAlbum | null => {
+    // Search results are on the landing now, not in a content zone, so they
+    // need their own branch or MENU would go dead over them.
+    if (showLandingRef.current) {
+      return landingModeRef.current === 'search' &&
+        searchZoneRef.current === 'results'
+        ? filteredSearchRef.current[searchResIdxRef.current] || null
+        : null;
+    }
     if (zoneRef.current !== 'content') {
       return null;
     }
@@ -1242,11 +1391,6 @@ export default function BrowseScreen({navigation, route}: any) {
       // Only the drilled-in view holds albums; the collection grid does not.
       return collectionViewRef.current === 'albums'
         ? collectionAlbumsRef.current[i] || null
-        : null;
-    }
-    if (t === 'search') {
-      return searchZoneRef.current === 'results'
-        ? filteredSearchRef.current[searchResIdxRef.current] || null
         : null;
     }
     return null;
@@ -1306,10 +1450,17 @@ export default function BrowseScreen({navigation, route}: any) {
         searchResTopRef.current = 0;
         // Recent tab lands on the album grid (Shuffle is one Up away).
         setRecentZone('grid');
-        // Playlists re-enter at the top of the list.
-        playlistTopRef.current = 0;
+        // Playlists re-enter at the top of the grid. topRowRef is reset
+        // above with the other grids; this only rewinds the list itself.
         playlistListRef.current?.scrollToOffset({offset: 0, animated: false});
       };
+      // The landing is showing the search keyboard and results.
+      if (landingModeRef.current === 'search') {
+        onNavSearch(k);
+        return;
+      }
+
+      // The landing is showing the section tiles.
       // 2D cursor over the card grid. Clamped rather than wrapped: on a remote
       // a wrap reads as the cursor jumping somewhere you did not ask for.
       const i = chooserIdxRef.current;
@@ -1338,9 +1489,6 @@ export default function BrowseScreen({navigation, route}: any) {
         openTab(TABS[i]);
         setShowLanding(false);
         setZone('content');
-        if (TABS[i] === 'search') {
-          setSearchZone('keyboard');
-        }
       }
       return;
     }
@@ -1376,7 +1524,7 @@ export default function BrowseScreen({navigation, route}: any) {
     const n = items.length;
     const idx = idxRef.current;
 
-    if (tabRef.current === 'albums') {
+    if (tabRef.current === 'albums' || tabRef.current === 'playlists') {
       const col = idx % COLS;
       const row = Math.floor(idx / COLS);
       if (k === 'left') {
@@ -1443,6 +1591,12 @@ export default function BrowseScreen({navigation, route}: any) {
           backToChooser();
           return true;
         }
+        // On the landing, BACK first closes the search body and returns to the
+        // section tiles; only from the tiles does it leave Browse.
+        if (landingModeRef.current === 'search') {
+          setLandingMode('tiles');
+          return true;
+        }
         return false;
       });
 
@@ -1496,52 +1650,35 @@ export default function BrowseScreen({navigation, route}: any) {
     );
   };
 
-  // Playlists: a plain vertical list. Reuses the artist-result row styling so
-  // the two list views look like one thing. Track count doubles as the "is this
-  // the playlist I meant" cue, since several share a title on this server.
+  // Playlists: a grid of composite mosaics, laid out exactly like Collections
+  // and Artists. See PlaylistCard for why this stopped being a list.
   const renderPlaylistsTab = () => (
     <FlatList
-      key="playlists-list"
+      key="playlists-grid"
       ref={playlistListRef}
       data={playlists}
-      renderItem={({item, index: i}) => {
-        const f = zone === 'content' && index === i;
-        const capped = item.count > PLAYLIST_MAX;
-        return (
-          <Focusable
-            focused={f}
-            scale={1.02}
-            ringColor={theme.accentFallback}
-            style={styles.resultItem}>
-            {/* A smart playlist is a saved query, not a hand-made list, and
-                that difference decides whether its contents will have changed
-                since last time. It used to be signalled by a ⚙ prefix inside
-                the title string — Noto Color Emoji again, and it made the
-                titles fail to line up with each other. */}
-            <Icon
-              name={item.smart ? 'settings' : 'playlists'}
-              size={20}
-              color={f ? theme.accentFallback : theme.textDim}
-            />
-            <Text style={styles.resultName} numberOfLines={1}>
-              {item.title}
-            </Text>
-            <Text style={styles.resultCount}>
-              {item.count ? `${item.count} tracks` : 'empty'}
-              {capped ? ` · first ${PLAYLIST_MAX}` : ''}
-            </Text>
-          </Focusable>
-        );
-      }}
+      renderItem={({item, index: i}) => (
+        <PlaylistCard
+          playlist={item}
+          focused={zone === 'content' && index === i}
+        />
+      )}
       keyExtractor={item => item.ratingKey}
-      extraData={index}
-      style={styles.resultsList}
+      extraData={zone === 'content' ? index : -1}
+      numColumns={COLS}
+      columnWrapperStyle={styles.row}
+      style={styles.list}
       contentContainerStyle={styles.listContent}
-      getItemLayout={(_d, i) => ({
-        length: PLAYLIST_H,
-        offset: LIST_TOP + PLAYLIST_H * i,
+      initialNumToRender={20}
+      windowSize={7}
+      getItemLayout={(_data, i) => ({
+        length: ROW_H,
+        offset: LIST_TOP + ROW_H * i,
         index: i,
       })}
+      ListEmptyComponent={
+        <Text style={styles.noResults}>No audio playlists on Plex.</Text>
+      }
     />
   );
 
@@ -1652,53 +1789,24 @@ export default function BrowseScreen({navigation, route}: any) {
     );
   };
 
-  const renderSearchTab = () => (
+  // The search body: keyboard on the left, results on the right. The query bar
+  // is NOT here — it is the landing's own bar, which stays on screen whether
+  // this body or the section tiles is showing.
+  const renderSearchBody = () => (
     <View style={styles.searchWrap}>
-      <View style={styles.queryBar}>
-        <Text
-          style={searchQuery ? styles.queryText : styles.queryPlaceholder}
-          numberOfLines={1}>
-          {searchQuery || 'Search albums & artists…'}
-          {searchQuery ? <Text style={styles.caret}>▏</Text> : null}
-        </Text>
-      </View>
       <View style={styles.searchRow}>
-        <View style={styles.keyboard}>
-          {KEY_ROWS.map((row, ri) => (
-            <View key={ri} style={styles.kbRow}>
-              {row.map((key, ci) => {
-                const f =
-                  zone === 'content' &&
-                  searchZone === 'keyboard' &&
-                  kbPos.row === ri &&
-                  kbPos.col === ci;
-                return (
-                  <Focusable
-                    key={ci}
-                    focused={f}
-                    scale={1.14}
-                    ringColor={theme.accentFallback}
-                    style={
-                      key.act ? styles.keyWideBox : (styles.key as ViewStyle)
-                    }>
-                    <Text style={[styles.keyText, f && styles.keyTextFocused]}>
-                      {key.l}
-                    </Text>
-                  </Focusable>
-                );
-              })}
-            </View>
-          ))}
-        </View>
+        <SearchKeyboard
+          row={kbPos.row}
+          col={kbPos.col}
+          active={searchActive && searchZone === 'keyboard'}
+        />
         <FlatList
           key="search-results"
           ref={searchResultsListRef}
           data={filteredSearch}
           renderItem={({item, index: i}) => {
             const f =
-              zone === 'content' &&
-              searchZone === 'results' &&
-              searchResIdx === i;
+              searchActive && searchZone === 'results' && searchResIdx === i;
             return (
               <Focusable
                 focused={f}
@@ -1724,7 +1832,9 @@ export default function BrowseScreen({navigation, route}: any) {
             index: i,
           })}
           ListEmptyComponent={
-            <Text style={styles.noResults}>No matching albums</Text>
+            <Text style={styles.noResults}>
+              {libraryLoading ? 'Loading library…' : 'No matching albums'}
+            </Text>
           }
         />
       </View>
@@ -1737,34 +1847,60 @@ export default function BrowseScreen({navigation, route}: any) {
 
       {showLanding ? (
         <View style={styles.landing}>
-          <View style={styles.chooserGrid}>
-            {Array.from(
-              {length: Math.ceil(TABS.length / CHOOSER_COLS)},
-              (_, r) => TABS.slice(r * CHOOSER_COLS, (r + 1) * CHOOSER_COLS),
-            ).map((row, r) => (
-              <View key={r} style={styles.chooserRow}>
-                {row.map((id, c) => {
-                  const i = r * CHOOSER_COLS + c;
-                  const on = chooserIdx === i;
-                  return (
-                    <Focusable
-                      key={id}
-                      focused={on}
-                      scale={1.06}
-                      ringColor={theme.accentFallback}
-                      style={styles.chooserCard}>
-                      <Icon
-                        name={TAB_ICONS[id]}
-                        size={34}
-                        color={on ? theme.accentFallback : theme.textPrimary}
-                      />
-                      <Text style={styles.chooserLabel}>{TAB_LABELS[id]}</Text>
-                    </Focusable>
-                  );
-                })}
-              </View>
-            ))}
-          </View>
+          {/* The query bar belongs to the search body, not to the chooser —
+              the way IN to search is the bar on the Now Playing overlay. This
+              one exists to show what has been typed so far. */}
+          {landingMode === 'search' ? (
+            <View style={styles.searchBar}>
+              <Icon name="search" size={22} color={theme.textDim} />
+              <Text
+                style={searchQuery ? styles.queryText : styles.queryPlaceholder}
+                numberOfLines={1}>
+                {searchQuery || 'Search albums & artists…'}
+                <Text style={styles.caret}>▏</Text>
+              </Text>
+              {searchQuery ? (
+                <Text style={styles.matchCount}>
+                  {filteredSearch.length}{' '}
+                  {filteredSearch.length === 1 ? 'match' : 'matches'}
+                </Text>
+              ) : null}
+            </View>
+          ) : null}
+          {landingMode === 'search' ? (
+            renderSearchBody()
+          ) : (
+            <View style={styles.chooserGrid}>
+              {Array.from(
+                {length: Math.ceil(TABS.length / CHOOSER_COLS)},
+                (_, r) => TABS.slice(r * CHOOSER_COLS, (r + 1) * CHOOSER_COLS),
+              ).map((row, r) => (
+                <View key={r} style={styles.chooserRow}>
+                  {row.map((id, c) => {
+                    const i = r * CHOOSER_COLS + c;
+                    const on = chooserIdx === i;
+                    return (
+                      <Focusable
+                        key={id}
+                        focused={on}
+                        scale={1.06}
+                        ringColor={theme.accentFallback}
+                        style={styles.chooserCard}>
+                        <Icon
+                          name={TAB_ICONS[id]}
+                          size={34}
+                          color={on ? theme.accentFallback : theme.textPrimary}
+                        />
+                        <Text style={styles.chooserLabel}>
+                          {TAB_LABELS[id]}
+                        </Text>
+                      </Focusable>
+                    );
+                  })}
+                </View>
+              ))}
+            </View>
+          )}
         </View>
       ) : activeTab === 'albums' ? (
         albumsLoading ? (
@@ -1823,12 +1959,8 @@ export default function BrowseScreen({navigation, route}: any) {
             <ActivityIndicator size="large" color="#3b9eff" />
             <Text style={styles.loadingText}>Loading playlists…</Text>
           </View>
-        ) : playlists.length ? (
-          renderPlaylistsTab()
         ) : (
-          <View style={styles.loadingBox}>
-            <Text style={styles.loadingText}>No audio playlists on Plex.</Text>
-          </View>
+          renderPlaylistsTab()
         )
       ) : activeTab === 'collections' ? (
         collectionsLoading ? (
@@ -1850,18 +1982,6 @@ export default function BrowseScreen({navigation, route}: any) {
           </View>
         ) : (
           renderArtistsTab()
-        )
-      ) : activeTab === 'search' ? (
-        libraryLoading ? (
-          <View style={styles.loadingBox}>
-            <ActivityIndicator size="large" color="#3b9eff" />
-            <Text style={styles.loadingText}>
-              Loading library{' '}
-              {progress.total ? `${progress.loaded} / ${progress.total}` : '…'}
-            </Text>
-          </View>
-        ) : (
-          renderSearchTab()
         )
       ) : activeTab === 'presets' ? (
         <FlatList
@@ -1894,13 +2014,18 @@ export default function BrowseScreen({navigation, route}: any) {
       {/* MENU is invisible without a prompt, so say so on the tabs that
           actually show albums. The artist roster is its own case: OK opens the
           artist rather than playing, and MENU does nothing there. */}
-      {showLanding ? null : activeTab === 'artists' && artistView === 'grid' ? (
+      {showLanding ? (
+        landingMode === 'search' ? (
+          <Text style={styles.menuHint}>
+            OK: play album · ☰ Menu: track listing
+          </Text>
+        ) : null
+      ) : activeTab === 'artists' && artistView === 'grid' ? (
         <Text style={styles.menuHint}>OK: view artist</Text>
       ) : activeTab === 'collections' && collectionView === 'grid' ? (
         <Text style={styles.menuHint}>OK: view collection</Text>
       ) : activeTab === 'albums' ||
         activeTab === 'recent' ||
-        activeTab === 'search' ||
         (activeTab === 'artists' && artistView === 'albums') ||
         (activeTab === 'collections' && collectionView === 'albums') ? (
         <Text style={styles.menuHint}>
@@ -1995,6 +2120,21 @@ const styles = StyleSheet.create({
     color: '#9aa',
     fontSize: 12,
   },
+  // Playlist cards put a glyph before the title, so the title line is a row.
+  // The icon is a sibling of the text rather than a prefix character inside it
+  // — that is what keeps the titles aligned with each other down a column.
+  cardTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    marginTop: 6,
+  },
+  cardTitleFlex: {
+    color: '#fff',
+    fontSize: 13,
+    fontWeight: '600',
+    flex: 1,
+  },
   // The landing body. Deliberately plain: it exists to be instant, so it holds
   // nothing that needs fetching, measuring or decoding beyond one small bundled
   // PNG.
@@ -2007,12 +2147,35 @@ const styles = StyleSheet.create({
   // The photo that used to fill it is gone with the tab bar it depended on: the
   // bar did the choosing and the photo was only something to look at while you
   // chose. Now the cards do both.
+  // The landing stacks the search bar over the body. It no longer centres a
+  // single block: the bar is pinned at the top so it does not move when the
+  // body under it swaps between the tiles and the keyboard.
   landing: {
     flex: 1,
+  },
+  // The bar reads as an input without shouting — a faint surface and a
+  // hairline, the same treatment the old query bar carried.
+  searchBar: {
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
+    gap: space.md,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderRadius: radius.md,
+    paddingHorizontal: 18,
+    paddingVertical: 12,
+    marginBottom: space.md,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.14)',
+  },
+  // The match count is metadata about the query, so it recedes and sits at the
+  // far end of the bar. flex on the text before it keeps this pinned right.
+  matchCount: {
+    ...typeScale.caption,
+    color: theme.textDim,
   },
   chooserGrid: {
+    flex: 1,
+    justifyContent: 'center',
     gap: space.md,
   },
   chooserRow: {
@@ -2066,26 +2229,16 @@ const styles = StyleSheet.create({
   searchWrap: {
     flex: 1,
   },
-  // The query bar reads as an input without shouting: a faint surface and a
-  // hairline rather than the 2dp saturated-blue outline it had, which was the
-  // brightest thing on the screen while being the one element you never focus.
-  queryBar: {
-    backgroundColor: 'rgba(255,255,255,0.05)',
-    borderRadius: radius.md,
-    paddingHorizontal: 18,
-    paddingVertical: 12,
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.14)',
-  },
   queryText: {
     ...typeScale.title,
     color: theme.textPrimary,
+    flex: 1,
   },
   queryPlaceholder: {
     ...typeScale.title,
     fontWeight: '400',
     color: theme.textDim,
+    flex: 1,
   },
   caret: {
     color: '#3b9eff',
@@ -2101,6 +2254,17 @@ const styles = StyleSheet.create({
   kbRow: {
     flexDirection: 'row',
     gap: 8,
+  },
+  // Ten digits against seven letters: 10x38 + 9x8 gaps is 452dp, against the
+  // letter rows' 7x54 + 6x8 = 426dp. Close enough that the block still reads
+  // as one keyboard rather than a wider row bolted underneath.
+  keyNarrow: {
+    width: 38,
+    height: 50,
+    borderRadius: radius.md,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   key: {
     width: 54,
@@ -2131,7 +2295,8 @@ const styles = StyleSheet.create({
   resultsList: {
     flex: 1,
   },
-  // List rows for Playlists, Search results and Collections.
+  // List rows for the Search results column — the last list view left, now
+  // that Playlists is a grid.
   //
   // These were the last of the old focus idiom: a 3dp white border snapping on
   // over a #16315a fill, which made every row read as a form field. Now the row
@@ -2148,10 +2313,9 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     gap: space.md,
   },
-  // flex, not flexShrink. The row is space-between, and adding the playlist
-  // icon made it three children instead of two — which left the title floating
-  // in the middle of the row rather than sitting against the icon. Letting the
-  // title take the free space pins it left and pushes the count to the edge.
+  // flex, not flexShrink. The row is space-between, so letting the title take
+  // the free space pins it left and pushes the count to the edge instead of
+  // leaving the title floating in the middle.
   resultName: {
     ...typeScale.body,
     color: theme.textPrimary,

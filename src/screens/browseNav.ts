@@ -15,14 +15,17 @@ import {inputsEnabled, presetsEnabled} from '../config/display';
 
 // Every tab BrowseScreen can render, in bar order. The two WiiM device tabs at
 // the end are optional (SHOW_PRESETS / SHOW_INPUTS in config/display.ts); the
-// six library tabs are always present.
+// five library tabs are always present.
+//
+// Search is deliberately NOT here. It stopped being a destination you travel
+// to and became a bar that is always on the Browse screen itself, so it has no
+// tile in the chooser and no index in this list.
 export const ALL_TABS = [
   'artists',
   'albums',
   'recent',
   'playlists',
   'collections',
-  'search',
   'presets',
   'inputs',
 ];
@@ -43,7 +46,14 @@ export function visibleTabs(
 // Resolved once from config, which is static for a build.
 export const TABS = visibleTabs(presetsEnabled(), inputsEnabled());
 
-export type KeyCell = {l: string; v: string; act?: 'space' | 'del' | 'clear'};
+// `n` marks a narrow key. The digit row is ten wide against the letter rows'
+// seven, so its keys shrink to keep the whole block the same width.
+export type KeyCell = {
+  l: string;
+  v: string;
+  act?: 'space' | 'del' | 'clear';
+  n?: boolean;
+};
 
 export type KeyPos = {row: number; col: number};
 

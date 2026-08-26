@@ -16,7 +16,7 @@ Features
 
 - Browse Artists, Albums, Recently Added, Playlists and Collections on the TV
 
-- Search the full catalog by album or artist
+- Search the full catalog by album or artist, from the Now Playing menu
 
 - Feeling Lucky — plays a random album
 
@@ -179,9 +179,9 @@ A tab bar across the top, content below, and a Back item at the bottom. Left fro
 | **Artists** | Grid of artists (thumbnail, name, album count). OK drills into that artist's releases, oldest first. Left or Up from the releases grid returns to the roster, on the same card you left from. |
 | **Albums** | Grid of album covers. OK plays the album from track 1. |
 | **Recent** | Most recently *added* albums, newest first, with a **Shuffle** button above the grid (Up from the top row) that plays a shuffled queue of recent tracks. Never cached, so a fresh import shows up immediately. |
-| **Playlists** | All audio playlists, alphabetical, with track counts and a `smart` marker. OK plays the playlist in its stored order. |
+| **Playlists** | Grid of the composite art Plex builds for each playlist, alphabetical, with track counts and an icon marking a `smart` one. OK plays the playlist in its stored order. |
 | **Collections** | Grid of the library's album collections (composite cover, title, album count, `⚙` for a smart one). OK drills into that collection's albums, in the server's stored order. Left or Up from the album grid returns to the collections, on the same card you left from. |
-| **Search** | On-screen A-Z keyboard on the left (plus SPACE, DEL, CLEAR), matching albums on the right. Matches album title **or** artist, case-insensitive substring, across the entire catalog. Right from the keyboard crosses into the results; Left goes back. |
+| **Search** | Not a tab — a bar on the Now Playing actions menu, above the nine tiles. It opens Browse with the keyboard already up: A-Z and 0-9 on the left (plus SPACE, DEL, CLEAR), matching albums on the right. Matches album title **or** artist, case-insensitive substring, across the entire catalog, with accented letters folded to their ASCII spelling so `eliane` finds Éliane Radigue. Right from the keyboard crosses into the results; Left goes back; BACK returns to the sections. |
 | **Presets** | The WiiM's own six stored presets. Hidden by default. |
 | **Inputs** | The WiiM's physical/streaming input sources. Hidden by default. |
 
@@ -336,7 +336,7 @@ Each setting is `0` (off) or `1` (on).
 | `SHOW_PRESETS` | `0` | Show the WiiM Presets tab in Browse. When off, the tab is absent and the WiiM is never queried for it. |
 | `SHOW_INPUTS` | `0` | Same, for the WiiM Inputs tab. |
 
-The six library tabs (Artists, Albums, Recent, Playlists, Collections, Search) are not configurable; hiding one would strand part of the library.
+The five library tabs (Artists, Albums, Recent, Playlists, Collections) are not configurable; hiding one would strand part of the library. Search is not among them — it is reached from the Now Playing actions menu.
 
 > Do not add a `display.json` next to `display.ts`. Metro resolves `.json` **before** `.ts`, so a same-named JSON file silently shadows the module in a release build while Jest (which resolves `.ts` first) stays green. `deploy.sh` has a guard that fails the build on this.
 

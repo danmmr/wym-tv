@@ -37,10 +37,21 @@ const ROWS: string[][] = [
 // The overlay's own grid. Same key names as before, so activate() is unchanged
 // and every action behaves exactly as it did — only where you reach it moved.
 const MENU_ROWS: string[][] = [
+  // A row of one, rendered as a full-width bar rather than a tile. It sits
+  // beside Browse rather than inside it: this overlay is the way into the
+  // library, so the way to search it belongs here too.
+  //
+  // moveMenu clamps the column into the destination row, so a one-wide row
+  // needs no special handling — Up from anywhere in the tiles lands on it, and
+  // Down returns to the first tile.
+  ['search'],
   ['lucky', 'queue', 'album'],
   ['libradio', 'deepcuts', 'recent'],
   ['browse', 'settings', 'saver'],
 ];
+
+// The one row that is not a tile.
+const isSearchRow = (key: string) => key === 'search';
 
 // Labels and glyphs for the overlay, keyed the same way. Kept beside MENU_ROWS
 // so adding an action means touching one place, not three.
@@ -51,6 +62,7 @@ const MENU_META: Record<string, {label: string; icon: IconName}> = {
   libradio: {label: 'Library Radio', icon: 'radio'},
   deepcuts: {label: 'Deep Cuts', icon: 'deepcuts'},
   recent: {label: 'Recently Added', icon: 'recent'},
+  search: {label: 'Search albums & artists…', icon: 'search'},
   browse: {label: 'Browse', icon: 'browse'},
   settings: {label: 'Settings', icon: 'settings'},
   saver: {label: 'Screensaver', icon: 'screensaver'},
@@ -574,6 +586,13 @@ export default function NowPlayingScreen({navigation}: any) {
       case 'browse':
         navigation.navigate('Browse');
         break;
+      // Browse owns the catalog, the keyboard and the results list already.
+      // Rebuilding any of that here would mean a second focus model inside an
+      // overlay that drives the D-pad through its own subscription — so this
+      // opens Browse with the keyboard already up instead.
+      case 'search':
+        navigation.navigate('Browse', {openSearch: true});
+        break;
       case 'settings':
         navigation.navigate('Settings');
         break;
@@ -923,6 +942,25 @@ export default function NowPlayingScreen({navigation}: any) {
                 {row.map((key, c) => {
                   const meta = MENU_META[key];
                   const on = menuPos.row === r && menuPos.col === c;
+                  if (isSearchRow(key)) {
+                    return (
+                      <Focusable
+                        key={key}
+                        focused={on}
+                        scale={1.01}
+                        ringColor={accent}
+                        style={styles.menuSearchBar}>
+                        <Icon
+                          name={meta.icon}
+                          size={22}
+                          color={on ? accent : color.textDim}
+                        />
+                        <Text style={styles.menuSearchLabel} numberOfLines={1}>
+                          {meta.label}
+                        </Text>
+                      </Focusable>
+                    );
+                  }
                   return (
                     <Focusable
                       key={key}
@@ -1265,5 +1303,25 @@ const styles = StyleSheet.create({
   menuLabel: {
     ...type.label,
     color: color.textPrimary,
+  },
+  // Width is derived from the tile grid rather than typed as a number, so the
+  // bar keeps lining up with the three columns if a tile ever resizes.
+  menuSearchBar: {
+    width: 190 * 3 + space.md * 2,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.md,
+    paddingHorizontal: 18,
+    paddingVertical: 12,
+    borderRadius: radius.md,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.14)',
+  },
+  menuSearchLabel: {
+    ...type.label,
+    fontWeight: '400',
+    color: color.textDim,
+    flex: 1,
   },
 });

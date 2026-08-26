@@ -17,6 +17,12 @@ on:
   push:
     branches: [main]
   pull_request:
+  # Run it by hand from the Actions tab. Added 2026-08-26, when five
+  # consecutive pushes to main created no run at all — Actions enabled, this
+  # workflow active, the push accepted, and no run queued. Without a manual
+  # trigger there is no way to ask for one, so a repo in that state cannot be
+  # probed and a release has to go out on local checks alone.
+  workflow_dispatch:
 
 jobs:
   check:

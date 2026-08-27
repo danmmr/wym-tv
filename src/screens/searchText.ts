@@ -227,3 +227,83 @@ export function fold(s: string): string {
   }
   return out;
 }
+
+// A stack of previous result sets, so that BOTH typing and deleting reuse work
+// instead of rescanning the whole catalog.
+//
+// Matching is a plain substring test, so the result sets for a query and any
+// prefix of it nest: everything matching "brian e" also matched "brian", which
+// also matched "bria". Each remembered entry is therefore a superset of every
+// entry above it, and the stack is a chain of prefixes by construction.
+//
+// Typing pushes: narrow the top entry by the one new character.
+// Deleting pops: the shorter query is already ON the stack, with the exact set
+// it matched, so a backspace answers from memory and scans nothing at all.
+// Only a query that is not a prefix of the top entry — the first character, or
+// a jump the keyboard cannot actually produce — falls back to a full scan.
+//
+// Entry sizes fall off fast (one character usually cuts the set by an order of
+// magnitude) and the depth is bounded by the query length, so the stack costs
+// far less than the single 5.7k-string scan it replaces.
+export type NarrowEntry = {q: string; idx: number[]};
+
+export class SearchNarrower {
+  // The haystack these positions refer to. Held by identity so a catalog
+  // reload cannot be answered from positions that indexed the previous one.
+  private src: string[] | null = null;
+  private stack: NarrowEntry[] = [];
+
+  // Positions in `index` whose string contains `q`. `q` is expected folded.
+  // An empty query clears the stack and returns nothing — callers show the
+  // whole catalog in that case rather than an empty result.
+  match(index: string[], q: string): number[] {
+    if (this.src !== index) {
+      this.src = index;
+      this.stack = [];
+    }
+    if (!q) {
+      this.stack = [];
+      return [];
+    }
+
+    // Drop every entry the new query does not extend. After this the top is
+    // the longest remembered prefix of `q`, or the stack is empty.
+    while (
+      this.stack.length &&
+      !q.startsWith(this.stack[this.stack.length - 1].q)
+    ) {
+      this.stack.pop();
+    }
+    const top = this.stack.length ? this.stack[this.stack.length - 1] : null;
+
+    // Backspace, or a repeat: the answer is already here.
+    if (top && top.q === q) {
+      return top.idx;
+    }
+
+    const from = top ? top.idx : null;
+    const idx: number[] = [];
+    if (from) {
+      for (let n = 0; n < from.length; n++) {
+        const i = from[n];
+        if (index[i].indexOf(q) !== -1) {
+          idx.push(i);
+        }
+      }
+    } else {
+      for (let i = 0; i < index.length; i++) {
+        if (index[i].indexOf(q) !== -1) {
+          idx.push(i);
+        }
+      }
+    }
+    this.stack.push({q, idx});
+    return idx;
+  }
+
+  // How many result sets are remembered. Exposed so a test can prove that a
+  // backspace really popped rather than quietly rescanning to the same answer.
+  get depth(): number {
+    return this.stack.length;
+  }
+}

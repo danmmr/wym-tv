@@ -34,7 +34,7 @@ import {
 } from '../api/plex';
 import {usePlayerStore} from '../store/playerStore';
 import {inputsEnabled, presetsEnabled} from '../config/display';
-import {fold} from './searchText';
+import {fold, SearchNarrower} from './searchText';
 import {navKeyboard, scrollTopFor, KeyCell, TABS} from './browseNav';
 import Icon from '../components/Icon';
 import type {IconName} from '../components/Icon';
@@ -587,43 +587,18 @@ export default function BrowseScreen({navigation, route}: any) {
     () => catalog.map(a => fold(`${a.title}\n${a.artist}`)),
     [catalog],
   );
-  // The previous query and the catalog positions it matched, so that adding a
-  // character narrows that set instead of rescanning ~5.7k strings.
-  //
-  // This is sound because matching is a plain substring test: if a query gains
-  // a character at the end, anything that matches the longer query also matched
-  // the shorter one, so the new result set is always a SUBSET of the old. It
-  // only applies when the new query extends the old one — deleting a character
-  // widens the set, and falls back to a full scan.
-  //
-  // Keyed on the searchIndex identity so a catalog reload cannot be answered
-  // from positions that referred to the previous one.
-  const narrowRef = useRef<{src: string[]; q: string; idx: number[]} | null>(
-    null,
-  );
+  // The remembered result sets, so that typing AND deleting both reuse work.
+  // Typing narrows the top set by one character; a backspace pops back to the
+  // set the shorter query already matched, which is why DEL no longer rescans
+  // all ~5.7k strings. See SearchNarrower for why the sets nest.
+  const narrowRef = useRef(new SearchNarrower());
   const filteredSearch = useMemo(() => {
     const q = fold(searchQuery.trim());
     if (!q) {
-      narrowRef.current = null;
+      narrowRef.current.match(searchIndex, '');
       return catalog;
     }
-    const prev = narrowRef.current;
-    const idx: number[] = [];
-    if (prev && prev.src === searchIndex && q.startsWith(prev.q)) {
-      for (let n = 0; n < prev.idx.length; n++) {
-        const i = prev.idx[n];
-        if (searchIndex[i].indexOf(q) !== -1) {
-          idx.push(i);
-        }
-      }
-    } else {
-      for (let i = 0; i < searchIndex.length; i++) {
-        if (searchIndex[i].indexOf(q) !== -1) {
-          idx.push(i);
-        }
-      }
-    }
-    narrowRef.current = {src: searchIndex, q, idx};
+    const idx = narrowRef.current.match(searchIndex, q);
     const out: PlexAlbum[] = [];
     for (let n = 0; n < idx.length; n++) {
       out.push(catalog[idx[n]]);

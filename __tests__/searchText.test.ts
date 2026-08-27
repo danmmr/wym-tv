@@ -1,4 +1,4 @@
-import {fold, FOLD} from '../src/screens/searchText';
+import {fold, FOLD, SearchNarrower} from '../src/screens/searchText';
 
 // The point of folding is that a query typed on a keyboard which offers only
 // A-Z, 0-9 and space can still reach titles that are not spelled that way.
@@ -101,5 +101,114 @@ describe('fold', () => {
 
   it('handles an empty string', () => {
     expect(fold('')).toBe('');
+  });
+});
+
+// A haystack that counts how many of its strings were actually looked at, so
+// "the backspace reused the previous set" is measured rather than inferred.
+// Asserting only on the RESULT could not tell reuse from a full rescan — both
+// return the same albums, which is the whole point of the optimisation.
+function counting(strings: string[]) {
+  const state = {reads: 0};
+  const proxy = new Proxy(strings, {
+    get(target, prop, recv) {
+      if (typeof prop === 'string' && /^\d+$/.test(prop)) {
+        state.reads++;
+      }
+      return Reflect.get(target, prop, recv);
+    },
+  });
+  return {index: proxy as string[], state};
+}
+
+describe('SearchNarrower', () => {
+  const catalog = [
+    'ambient 1\nbrian eno',
+    'apollo\nbrian eno',
+    'discreet music\nbrian eno',
+    'ok computer\nradiohead',
+    'kid a\nradiohead',
+    'selected ambient works\naphex twin',
+  ];
+  const titles = (idx: number[]) => idx.map(i => catalog[i]);
+
+  it('matches title or artist as a folded substring', () => {
+    const n = new SearchNarrower();
+    expect(titles(n.match(catalog, 'radiohead'))).toEqual([
+      'ok computer\nradiohead',
+      'kid a\nradiohead',
+    ]);
+    expect(titles(new SearchNarrower().match(catalog, 'ambient'))).toEqual([
+      'ambient 1\nbrian eno',
+      'selected ambient works\naphex twin',
+    ]);
+  });
+
+  it('narrows instead of rescanning as characters are typed', () => {
+    const {index, state} = counting(catalog);
+    const n = new SearchNarrower();
+    n.match(index, 'b');
+    const afterFirst = state.reads;
+    expect(afterFirst).toBe(catalog.length); // the one unavoidable full scan
+    state.reads = 0;
+    n.match(index, 'br');
+    // Four rows carry a 'b' — the three Eno ones and "selected amBient
+    // works" — so exactly those four are re-tested and the other two are not.
+    expect(state.reads).toBe(4);
+  });
+
+  it('answers a backspace from the stack without reading the haystack', () => {
+    const {index, state} = counting(catalog);
+    const n = new SearchNarrower();
+    n.match(index, 'b');
+    n.match(index, 'br');
+    n.match(index, 'bri');
+    expect(n.depth).toBe(3);
+
+    state.reads = 0;
+    const back = n.match(index, 'br');
+    expect(state.reads).toBe(0); // the whole point: DEL scans nothing
+    expect(n.depth).toBe(2); // and it popped rather than pushing a duplicate
+    expect(titles(back)).toEqual([
+      'ambient 1\nbrian eno',
+      'apollo\nbrian eno',
+      'discreet music\nbrian eno',
+    ]);
+  });
+
+  it('gives a backspace the same answer a cold scan would', () => {
+    const n = new SearchNarrower();
+    n.match(catalog, 'r');
+    n.match(catalog, 'ra');
+    n.match(catalog, 'rad');
+    expect(n.match(catalog, 'ra')).toEqual(
+      new SearchNarrower().match(catalog, 'ra'),
+    );
+  });
+
+  it('rescans when the query is not an extension of a remembered one', () => {
+    const {index, state} = counting(catalog);
+    const n = new SearchNarrower();
+    n.match(index, 'brian');
+    state.reads = 0;
+    n.match(index, 'aphex'); // unrelated query — nothing on the stack helps
+    expect(state.reads).toBe(catalog.length);
+    expect(n.depth).toBe(1);
+  });
+
+  it('forgets everything when the catalog is replaced', () => {
+    const n = new SearchNarrower();
+    n.match(catalog, 'brian');
+    const reloaded = [...catalog];
+    // Same strings, new array: positions must not be reused across identities.
+    expect(titles(n.match(reloaded, 'brian')).length).toBe(3);
+    expect(n.depth).toBe(1);
+  });
+
+  it('clears on an empty query', () => {
+    const n = new SearchNarrower();
+    n.match(catalog, 'brian');
+    expect(n.match(catalog, '')).toEqual([]);
+    expect(n.depth).toBe(0);
   });
 });

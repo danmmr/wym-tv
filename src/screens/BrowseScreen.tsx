@@ -245,10 +245,20 @@ const CollectionCard = React.memo(function CollectionCard({
           </Text>
         </View>
       )}
-      <Text style={styles.cardTitle} numberOfLines={1}>
-        {collection.smart ? '⚙ ' : ''}
-        {collection.title}
-      </Text>
+      <View style={styles.cardTitleRow}>
+        {/* Same marker as PlaylistCard, and an Icon for the same reason: the
+            ⚙ character is drawn from Noto Color Emoji on Fire OS, which
+            sits on a different baseline and made titles fail to line up down
+            a column. */}
+        <Icon
+          name={collection.smart ? 'settings' : 'collections'}
+          size={12}
+          color={focused ? theme.accentFallback : theme.textDim}
+        />
+        <Text style={styles.cardTitleFlex} numberOfLines={1}>
+          {collection.title}
+        </Text>
+      </View>
       <Text style={styles.cardArtist} numberOfLines={1}>
         {collection.count} {collection.count === 1 ? 'album' : 'albums'}
       </Text>

@@ -723,7 +723,14 @@ export default function NowPlayingScreen({navigation}: any) {
         } else if (k === 'right') {
           moveFocus(row, col + 1);
         } else if (k === 'up') {
-          moveFocus(Math.max(0, row - 1), col);
+          // Up steps between the transport and volume rows as usual, but from
+          // the TOP row it has nowhere to go — that dead press now opens the
+          // screensaver, mirroring the down that dismisses it.
+          if (row === 0) {
+            setShowScreensaver(true);
+          } else {
+            moveFocus(row - 1, col);
+          }
         } else if (k === 'down') {
           moveFocus(Math.min(ROWS.length - 1, row + 1), col);
         } else if (k === 'select') {

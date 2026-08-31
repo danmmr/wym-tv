@@ -694,21 +694,21 @@ export default function NowPlayingScreen({navigation}: any) {
       const navSub = subscribeNav((k: string) => {
         if (showScreensaverRef.current) {
           // Left and right step through SAVER_MODES, wrapping both ways.
-          // OK/center and BACK dismiss; the menu/options button toggles the
-          // album-art progress ring. Any other key also dismisses.
+          // Down, OK/center and BACK dismiss; the menu/options button toggles
+          // the album-art progress ring. Any other key also dismisses.
           //
-          // Up and down are deliberately INERT rather than dismissing. They
-          // used to pick starfield and metaball, so anyone reaching for a
-          // visualizer the old way would otherwise be thrown back to Now
-          // Playing by the fall-through.
+          // Up is deliberately INERT rather than dismissing. Up and down both
+          // used to pick a visualizer (starfield and metaball), so anyone
+          // reaching for one the old way would otherwise be thrown back to Now
+          // Playing by the fall-through. Down is the deliberate way out.
           if (k === 'left') {
             setVizIndex(i => (i - 1 + SAVER_MODES.length) % SAVER_MODES.length);
           } else if (k === 'right') {
             setVizIndex(i => (i + 1) % SAVER_MODES.length);
-          } else if (k === 'up' || k === 'down') {
+          } else if (k === 'up') {
             // inert
-          } else if (k === 'select') {
-            handleScreensaverExit(); // OK / center returns to Now Playing
+          } else if (k === 'down' || k === 'select') {
+            handleScreensaverExit(); // down or OK/center returns to Now Playing
           } else if (k === 'menu') {
             setShowProgressRing(p => !p); // menu button toggles the time-left ring
           } else {

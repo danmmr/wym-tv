@@ -30,9 +30,19 @@ import {color, motion, onArt, radius, space, type} from '../theme';
 // screen with art behind it. The nine secondary actions moved into the ⋮ menu
 // overlay below; what stays on the hero is transport, volume, and the way in.
 const ROWS: string[][] = [
+  // The progress bar is a row of its own so that scrubbing costs no new
+  // gesture: focus it and left/right seek instead of moving. Everywhere else
+  // left/right still step between controls.
+  ['seek'],
   ['prev', 'play', 'next', 'more'],
   ['vdown', 'vup'],
 ];
+
+// How far one left/right press moves the playhead, and how long the screen
+// waits after the last press before actually telling the device. The wait is
+// what makes a run of presses one seek rather than six.
+const SEEK_STEP_MS = 10000;
+const SEEK_COMMIT_MS = 600;
 
 // The overlay's own grid. Same key names as before, so activate() is unchanged
 // and every action behaves exactly as it did — only where you reach it moved.
@@ -113,9 +123,15 @@ export default function NowPlayingScreen({navigation}: any) {
   const [showProgressRing, setShowProgressRing] = useState(false);
   const [lastAction, setLastAction] = useState('');
   const [connection, setConnection] = useState<'ok' | 'reconnecting'>('ok');
-  const [focusRow, setFocusRow] = useState(0);
+  const [focusRow, setFocusRow] = useState(1);
   const [focusCol, setFocusCol] = useState(1); // default: Play
-  const focusPosRef = useRef({row: 0, col: 1});
+  const focusPosRef = useRef({row: 1, col: 1});
+  // While a scrub is in flight the bar shows where it is GOING, not where the
+  // device says it is: the poll is 1.5s, so without this every press would be
+  // undone on screen a moment later and a run of presses could not accumulate.
+  const [seekPreview, setSeekPreview] = useState<number | null>(null);
+  const seekPreviewRef = useRef<number | null>(null);
+  const seekTimerRef = useRef<NodeJS.Timeout>();
   // The ⋮ overlay holding the nine secondary actions. Its focus position is
   // kept in a ref for the same reason the hero's is — see moveFocus below.
   const [menuOpen, setMenuOpen] = useState(false);
@@ -642,7 +658,14 @@ export default function NowPlayingScreen({navigation}: any) {
       } else if (k === 'right') {
         moveMenu(row, col + 1);
       } else if (k === 'up') {
-        moveMenu(row - 1, col);
+        // From the top row up has nowhere to go, and a clamped press that does
+        // nothing is a press wasted — it closes the overlay instead, the same
+        // as the menu button and BACK.
+        if (row === 0) {
+          closeMenu();
+        } else {
+          moveMenu(row - 1, col);
+        }
       } else if (k === 'down') {
         moveMenu(row + 1, col);
       } else if (k === 'select') {
@@ -665,6 +688,7 @@ export default function NowPlayingScreen({navigation}: any) {
   // an unmounted screen. Note the double arrow: clearTimeout returns undefined,
   // so returning its result directly would register no cleanup at all.
   useEffect(() => () => clearTimeout(volumeTimerRef.current), []);
+  useEffect(() => () => clearTimeout(seekTimerRef.current), []);
 
   // Focus moves are written to the ref SYNCHRONOUSLY, not in an effect.
   // The D-pad handler computes the next position from the ref, and an effect
@@ -673,6 +697,50 @@ export default function NowPlayingScreen({navigation}: any) {
   // destination, and one of the two presses is silently lost. Five presses,
   // three moves. It reads as lag, and it is worst at startup when the JS thread
   // is busy and commits are slowest.
+  // Nudge the playhead. Presses accumulate against the PREVIEW rather than
+  // against the polled position, so holding left/right walks the bar smoothly
+  // instead of fighting a value that only updates every 1.5s. The device is
+  // told once, SEEK_COMMIT_MS after the last press.
+  const nudgeSeek = (deltaMs: number) => {
+    const {duration, currentPos} = usePlayerStore.getState();
+    if (!duration || duration <= 0) {
+      return; // nothing playing, or a stream with no known length
+    }
+    const base = seekPreviewRef.current ?? currentPos;
+    const next = Math.min(Math.max(0, base + deltaMs), duration);
+    seekPreviewRef.current = next;
+    setSeekPreview(next);
+    clearTimeout(seekTimerRef.current);
+    seekTimerRef.current = setTimeout(() => {
+      const target = seekPreviewRef.current;
+      if (target === null) {
+        return;
+      }
+      run('Seek', () => clientRef.current!.seek(Math.round(target / 1000)));
+    }, SEEK_COMMIT_MS);
+  };
+
+  // Drop the preview once the device's own position has caught up to it, so
+  // the bar hands control back to the poll rather than staying frozen. A plain
+  // timeout would either cut the preview off early or strand it if the seek
+  // failed; comparing positions ends it exactly when reality agrees.
+  useEffect(() => {
+    if (seekPreview === null) {
+      return;
+    }
+    if (Math.abs(playerState.currentPos - seekPreview) < 3000) {
+      seekPreviewRef.current = null;
+      setSeekPreview(null);
+    }
+  }, [playerState.currentPos, seekPreview]);
+
+  // A track change invalidates any scrub aimed at the old one.
+  useEffect(() => {
+    seekPreviewRef.current = null;
+    setSeekPreview(null);
+    clearTimeout(seekTimerRef.current);
+  }, [playerState.title]);
+
   const moveFocus = (row: number, col: number) => {
     const c = Math.min(Math.max(0, col), ROWS[row].length - 1);
     focusPosRef.current = {row, col: c};
@@ -718,10 +786,21 @@ export default function NowPlayingScreen({navigation}: any) {
         }
         resetInactivityTimer();
         const {row, col} = focusPosRef.current;
+        // The progress row holds a single control, so left/right there can
+        // mean scrub without taking anything away from focus movement.
+        const scrubbing = ROWS[row][col] === 'seek';
         if (k === 'left') {
-          moveFocus(row, col - 1);
+          if (scrubbing) {
+            nudgeSeek(-SEEK_STEP_MS);
+          } else {
+            moveFocus(row, col - 1);
+          }
         } else if (k === 'right') {
-          moveFocus(row, col + 1);
+          if (scrubbing) {
+            nudgeSeek(SEEK_STEP_MS);
+          } else {
+            moveFocus(row, col + 1);
+          }
         } else if (k === 'up') {
           // Up steps between the transport and volume rows as usual, but from
           // the TOP row it has nowhere to go — that dead press now opens the
@@ -809,9 +888,12 @@ export default function NowPlayingScreen({navigation}: any) {
   }
 
   const tier = resTier();
+  // While scrubbing the bar follows the preview; otherwise it follows the
+  // device. Same expression either way, only the numerator changes.
+  const shownPos = seekPreview ?? playerState.currentPos;
   const progressPct =
     playerState.duration > 0
-      ? Math.min(100, (playerState.currentPos / playerState.duration) * 100)
+      ? Math.min(100, (shownPos / playerState.duration) * 100)
       : 0;
 
   return (
@@ -864,8 +946,15 @@ export default function NowPlayingScreen({navigation}: any) {
           ) : null}
 
           <View style={styles.progressRow}>
-            <Text style={styles.time}>{fmt(playerState.currentPos)}</Text>
-            <View style={styles.progressBar}>
+            <Text style={styles.time}>{fmt(shownPos)}</Text>
+            <View
+              style={[
+                styles.progressBar,
+                // Focus on a 4dp line needs to read from a sofa: the bar grows
+                // and takes the accent as a track tint, rather than the border
+                // a Focusable would draw around a hairline.
+                focusedKey === 'seek' && styles.progressBarFocused,
+              ]}>
               <View
                 style={[
                   styles.progressFill,
@@ -877,6 +966,7 @@ export default function NowPlayingScreen({navigation}: any) {
               <View
                 style={[
                   styles.progressDot,
+                  focusedKey === 'seek' && styles.progressDotFocused,
                   {backgroundColor: accent, left: `${progressPct}%`},
                 ]}
               />
@@ -931,7 +1021,7 @@ export default function NowPlayingScreen({navigation}: any) {
               />
             </Focusable>
             <VolumeBar
-              shown={volumeShown || focusRow === 1}
+              shown={volumeShown || focusRow === 2}
               value={playerState.volume}
               accent={accent}
             />
@@ -1215,9 +1305,20 @@ const styles = StyleSheet.create({
     backgroundColor: color.track,
     borderRadius: 2,
   },
+  progressBarFocused: {
+    height: 8,
+    borderRadius: 4,
+  },
   progressFill: {
     height: '100%',
     borderRadius: 2,
+  },
+  progressDotFocused: {
+    top: -5,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    marginLeft: -9,
   },
   progressDot: {
     position: 'absolute',

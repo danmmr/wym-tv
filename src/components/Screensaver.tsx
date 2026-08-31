@@ -19,6 +19,7 @@ import ReAnimated, {
   useSharedValue,
 } from 'react-native-reanimated';
 import type {SharedValue} from 'react-native-reanimated';
+import SaverHint from './SaverHint';
 import {usePlayerStore} from '../store/playerStore';
 
 const {width, height} = Dimensions.get('window');
@@ -824,12 +825,23 @@ function Screensaver({
 
   const bpm = titleToBpm(title || 'default');
 
+  // Hold the screen awake only while something is actually PLAYING. This used
+  // to be unconditional, which meant a paused or stopped device sat here
+  // animating a lit panel forever and defeating the TV's own sleep — the
+  // screensaver is not a reason to keep a television on by itself. Pausing
+  // now releases the lock and lets the TV do what it would normally do;
+  // resuming takes it back.
+  const playing = usePlayerStore(s => s.status === 'play');
   useEffect(() => {
+    if (!playing) {
+      NativeModules.WakeControl?.keepAwake(false);
+      return;
+    }
     NativeModules.WakeControl?.keepAwake(true);
     return () => {
       NativeModules.WakeControl?.keepAwake(false);
     };
-  }, []);
+  }, [playing]);
 
   // Only tick while the clock is actually on screen. The render below shows the
   // clock ONLY when `title` is empty, but this interval used to run regardless —
@@ -884,6 +896,8 @@ function Screensaver({
           clock={clock}
         />
       )}
+
+      <SaverHint />
 
       {title ? (
         <ReAnimated.View style={[styles.floatBlock, floatStyle]}>

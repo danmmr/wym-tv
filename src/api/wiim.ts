@@ -47,6 +47,16 @@ export interface QueueInfo {
   items: QueueItem[];
 }
 
+// Where playback sits in the device's queue, read from the device rather than
+// from getPlayerStatus: `plicurr`/`plicount` there go STALE the moment the
+// queue is edited (measured — they still reported 3/6 after the queue had been
+// cut down to a single track), and every edit below is expressed as a range of
+// indices, so a stale index would remove the wrong tracks.
+export interface QueuePosition {
+  index: number; // 1-based position of the track playing now, 0 when unknown
+  total: number; // tracks currently in the queue
+}
+
 // Fixed name for the queue we push. The album name still shows in Now Playing
 // via each track's metadata; this is just the internal queue handle, so a
 // constant keeps PlayQueueWithIndex reliable regardless of album title chars.
@@ -301,19 +311,97 @@ export class WiiMClient {
     await this.command(`setPlayerCmd:loopmode:${mode}`);
   }
 
-  // Append more tracks to the existing WiiMTV queue WITHOUT interrupting
-  // playback (used by station auto-refill). AppendTracksInQueue takes the same
-  // QueueContext as CreateQueue; the device merges its Tracks into the queue
-  // whose ListName matches (QUEUE_NAME).
-  async appendQueue(tracks: QueueTrack[]): Promise<void> {
+  // Append more tracks to an existing queue WITHOUT interrupting playback (used
+  // by station auto-refill and by queueNext below). AppendTracksInQueue takes
+  // the same QueueContext as CreateQueue; the device merges its Tracks into the
+  // queue whose ListName matches. That name defaults to ours, but a queue
+  // pushed by another app carries its own — pass it, or the append silently
+  // lands nowhere.
+  async appendQueue(
+    tracks: QueueTrack[],
+    listName: string = QUEUE_NAME,
+  ): Promise<void> {
     if (!tracks.length) {
       return;
     }
-    const ctx = buildQueueContext(QUEUE_NAME, tracks);
+    const ctx = buildQueueContext(listName, tracks);
     await this.playQueueSoap(
       'AppendTracksInQueue',
       `<QueueContext>${htmlEsc(ctx)}</QueueContext>`,
     );
+  }
+
+  // Where playback sits in `listName`. The device is the only honest source
+  // here; see QueuePosition.
+  async getQueueIndex(listName: string): Promise<QueuePosition> {
+    const resp = await this.playQueueSoap(
+      'GetQueueIndex',
+      `<QueueName>${xText(listName)}</QueueName>`,
+    );
+    const cur = /<CurrentIndex>(\d+)<\/CurrentIndex>/.exec(resp);
+    const num = /<TrackNums>(\d+)<\/TrackNums>/.exec(resp);
+    return {
+      index: cur ? parseInt(cur[1], 10) : 0,
+      total: num ? parseInt(num[1], 10) : 0,
+    };
+  }
+
+  // Drop a 1-based INCLUSIVE range of tracks from a queue, in place, without
+  // interrupting whatever is playing — provided the playing track is not in the
+  // range. Removing below the current track renumbers it, so callers must
+  // remove the TAIL first and the HEAD second.
+  async removeTracks(
+    listName: string,
+    start: number,
+    end: number,
+  ): Promise<void> {
+    if (end < start) {
+      return;
+    }
+    await this.playQueueSoap(
+      'RemoveTracksInQueue',
+      `<QueueName>${xText(listName)}</QueueName>` +
+        `<RangStart>${start}</RangStart><RangEnd>${end}</RangEnd>` +
+        '<Action>1</Action>',
+    );
+  }
+
+  // Play `tracks` after the song playing now, discarding everything else in the
+  // queue. Returns false when there is nothing to queue behind — no queue, or
+  // the device is stopped — and the caller should just play the tracks outright.
+  //
+  // Why it is built this way: CreateQueue with the current track prepended
+  // reads like the obvious approach and is unusable — issuing CreateQueue mid
+  // playback STOPS the device (verified on a WiiM Ultra: status went to 'stop'
+  // and stayed there). Trimming the live queue and appending to it never
+  // interrupts anything; the current track's position keeps advancing across
+  // all three calls.
+  async queueNext(tracks: QueueTrack[]): Promise<boolean> {
+    if (!tracks.length) {
+      return false;
+    }
+    const status = await this.getStatus();
+    if (status.status !== 'play' && status.status !== 'pause') {
+      return false;
+    }
+    // The queue we are editing is whatever is loaded, which is not necessarily
+    // ours — the WiiM Home app and Plex both push their own.
+    const {listName} = await this.browseQueue();
+    if (!listName) {
+      return false;
+    }
+    const {index, total} = await this.getQueueIndex(listName);
+    if (index < 1) {
+      return false;
+    }
+    if (total > index) {
+      await this.removeTracks(listName, index + 1, total);
+    }
+    if (index > 1) {
+      await this.removeTracks(listName, 1, index - 1);
+    }
+    await this.appendQueue(tracks, listName);
+    return true;
   }
 
   async playAlbumQueue(tracks: QueueTrack[], startIndex = 0): Promise<void> {

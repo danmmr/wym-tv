@@ -31,6 +31,10 @@ const VISIBLE = 6; // seed; the real count is measured onLayout
 // Track listing for one album, opened with the MENU (☰) key from Browse. OK on
 // a track starts the album from THAT track — the whole album still goes to the
 // WiiM as one queue, so the rest of it plays on afterwards.
+//
+// RIGHT and ☰ queue instead of interrupting: RIGHT puts the focused track after
+// the song playing now, ☰ puts the whole album there. Both discard the rest of
+// the live queue, so what is playing finishes and then this is what follows.
 export default function AlbumScreen({route, navigation}: any) {
   const album: PlexAlbum = route?.params?.album;
   const selectedDevice = useDeviceStore(s => s.selectedDevice);
@@ -126,6 +130,45 @@ export default function AlbumScreen({route, navigation}: any) {
     }
   };
 
+  // Queue after the current song: the whole album, or just track `i`. Anything
+  // else in the queue is discarded, so this is always "then THIS plays". With
+  // nothing playing there is nothing to queue behind, and it plays outright.
+  const queueNext = async (i: number, whole: boolean) => {
+    const c = clientRef.current;
+    if (!c || busyRef.current || !album) {
+      return;
+    }
+    busyRef.current = true;
+    const t = tracksRef.current[i];
+    const label = whole ? album.title : t ? t.title : album.title;
+    setStatus(`Queueing "${label}"…`);
+    try {
+      // Built from the same helper the play path uses, so a queued track
+      // carries byte-identical metadata to a played one.
+      const queue = await buildAlbumQueue(album);
+      if (!queue.length) {
+        setStatus('No playable tracks on this album');
+        return;
+      }
+      const wanted = whole ? queue : queue.slice(i, i + 1);
+      // A finite queue supersedes any active station auto-refill — otherwise
+      // the station would keep appending behind what was just queued.
+      usePlayerStore.getState().setPlayerState({stationKind: null});
+      const queued = await c.queueNext(wanted);
+      if (queued) {
+        setStatus(`Playing next: "${label}"`);
+      } else {
+        // Nothing was playing, so "after the current song" means "now".
+        await c.playAlbumQueue(wanted, 0);
+        navigation.navigate('NowPlaying');
+      }
+    } catch (e: any) {
+      setStatus(`Could not queue: ${e?.message || 'error'}`);
+    } finally {
+      busyRef.current = false;
+    }
+  };
+
   useFocusEffect(
     useCallback(() => {
       captureDpad();
@@ -144,6 +187,10 @@ export default function AlbumScreen({route, navigation}: any) {
           }
         } else if (k === 'left') {
           navigation.goBack();
+        } else if (k === 'right') {
+          queueNext(f, false);
+        } else if (k === 'menu') {
+          queueNext(f, true);
         } else if (k === 'select') {
           playFrom(f);
         }
@@ -157,7 +204,8 @@ export default function AlbumScreen({route, navigation}: any) {
         back.remove();
       };
       // The D-pad listener is registered ONCE and reads live values through
-      // refs. Adding playFrom here would re-register it on every render.
+      // refs. Adding playFrom or queueNext here would re-register it on every
+      // render.
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [navigation]),
   );
@@ -247,7 +295,8 @@ export default function AlbumScreen({route, navigation}: any) {
       />
 
       <Text style={styles.hint}>
-        OK: play from this track · LEFT/BACK: Browse
+        OK: play from this track · RIGHT: queue track next · ☰ Menu: queue album
+        next · LEFT/BACK: Browse
       </Text>
     </View>
   );

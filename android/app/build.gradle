@@ -80,7 +80,14 @@ android {
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 2
-        versionName "1.1.0"
+        // versionName comes from package.json so it cannot drift from what the
+        // Settings screen shows — that one was hardcoded and sat three
+        // releases behind at 0.0.1. versionCode stays HERE and stays manual:
+        // it is the half that actually decides whether an APK will upgrade an
+        // existing install, and deriving it from a name is how you ship a
+        // release that silently refuses to install. Bump both together.
+        versionName new groovy.json.JsonSlurper()
+                .parseText(file("../../package.json").text).version
     }
     signingConfigs {
         debug {

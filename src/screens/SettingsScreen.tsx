@@ -3,10 +3,11 @@ import {
   View,
   Text,
   StyleSheet,
-  TouchableOpacity,
+  Pressable,
   NativeModules,
   Alert,
 } from 'react-native';
+import {version as APP_VERSION} from '../../package.json';
 import {color as theme, onArt, type as typeScale} from '../theme';
 import {captureDpad, subscribeNav} from '../nav/dpad';
 import {useFocusEffect} from '@react-navigation/native';
@@ -14,7 +15,7 @@ import {useDeviceStore} from '../store/deviceStore';
 import {usePlayerStore} from '../store/playerStore';
 
 // Vertical focus order for the JS D-pad cursor.
-const ITEMS = ['clear', 'restart', 'back'] as const;
+const ITEMS = ['device', 'clear', 'restart', 'back'] as const;
 type Item = (typeof ITEMS)[number];
 
 export default function SettingsScreen({navigation}: any) {
@@ -46,7 +47,9 @@ export default function SettingsScreen({navigation}: any) {
   };
 
   const activate = (item: Item) => {
-    if (item === 'clear') {
+    if (item === 'device') {
+      navigation.navigate('Discovery');
+    } else if (item === 'clear') {
       handleClearCache();
     } else if (item === 'restart') {
       handleRestart();
@@ -55,8 +58,12 @@ export default function SettingsScreen({navigation}: any) {
     }
   };
 
-  // JS-managed focus cursor (native TouchableOpacity focus is invisible on
-  // Fire TV) — same captureDpad + WiiMNavKey pattern as the other screens.
+  // JS-managed focus cursor (native focus is invisible on Fire TV) — same
+  // captureDpad + WiiMNavKey pattern as the other screens. Every Pressable
+  // below is focusable={false} for the other half of that: native focus is
+  // invisible but still LIVE, and DPAD_CENTER clicks whatever holds it, behind
+  // this cursor's back. On Now Playing that turned an OK press into a jump to
+  // Discovery; here it would fire Clear Cache or Restart.
   // Alert dialogs get their own window, so D-pad works natively inside them.
   useFocusEffect(
     useCallback(() => {
@@ -84,22 +91,43 @@ export default function SettingsScreen({navigation}: any) {
     <View style={styles.container}>
       <Text style={styles.title}>Settings</Text>
 
+      {/* The only remote-reachable way to the device picker. The device name
+          on Now Playing opens it too, but that is a touch target on a platform
+          with no touch — before this, switching WiiMs meant clearing the cache
+          to force the picker at the next start. */}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Device</Text>
+        <Pressable
+          focusable={false}
+          style={[styles.button, focusedItem === 'device' && styles.focused]}
+          onPress={() => navigation.navigate('Discovery')}>
+          <Text style={styles.buttonText}>
+            {deviceStore.selectedDevice?.name || 'Choose Device'}
+          </Text>
+        </Pressable>
+        <Text style={styles.aboutText}>
+          Pick which WiiM this remote controls.
+        </Text>
+      </View>
+
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Cache</Text>
-        <TouchableOpacity
+        <Pressable
+          focusable={false}
           style={[styles.button, focusedItem === 'clear' && styles.focused]}
           onPress={handleClearCache}>
           <Text style={styles.buttonText}>Clear Cache</Text>
-        </TouchableOpacity>
+        </Pressable>
       </View>
 
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>App</Text>
-        <TouchableOpacity
+        <Pressable
+          focusable={false}
           style={[styles.button, focusedItem === 'restart' && styles.focused]}
           onPress={handleRestart}>
           <Text style={styles.buttonText}>Restart App</Text>
-        </TouchableOpacity>
+        </Pressable>
         <Text style={styles.aboutText}>
           Fully kills and relaunches the app, same as force-stopping it in Fire
           TV settings.
@@ -108,13 +136,15 @@ export default function SettingsScreen({navigation}: any) {
 
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>About</Text>
-        <Text style={styles.aboutText}>WyM TV v0.0.1</Text>
+        {/* One line, not two: the Back line is bottom-pinned, so every line
+            About spends is a line closer to it. */}
         <Text style={styles.aboutText}>
-          Remote control for WiiM audio devices
+          WyM TV v{APP_VERSION} · Remote control for WiiM audio devices
         </Text>
       </View>
 
-      <TouchableOpacity
+      <Pressable
+        focusable={false}
         style={styles.backButton}
         onPress={() => navigation.navigate('NowPlaying')}>
         <Text
@@ -124,7 +154,7 @@ export default function SettingsScreen({navigation}: any) {
           ]}>
           ← Back
         </Text>
-      </TouchableOpacity>
+      </Pressable>
     </View>
   );
 }
@@ -134,27 +164,32 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#1a1a1a',
     paddingHorizontal: 40,
-    paddingVertical: 20,
+    paddingTop: 20,
+    // Overscan-safe bottom inset.
+    paddingBottom: 28,
   },
+  // Four sections have to fit a 540dp window with no scrolling, so the spacing
+  // here is a budget, not taste: the Device section that made it four is what
+  // pushed About and the Back line off the bottom at the old 30/15.
   title: {
     fontSize: 32,
     fontWeight: 'bold',
     color: '#3b9eff',
-    marginBottom: 30,
+    marginBottom: 16,
   },
   section: {
-    marginBottom: 30,
+    marginBottom: 12,
   },
   sectionTitle: {
     fontSize: 18,
     fontWeight: 'bold',
     color: '#3b9eff',
-    marginBottom: 15,
+    marginBottom: 8,
   },
   button: {
     backgroundColor: '#ff4444',
     paddingHorizontal: 20,
-    paddingVertical: 12,
+    paddingVertical: 9,
     borderRadius: 8,
     marginBottom: 10,
     borderWidth: 3,
@@ -173,17 +208,21 @@ const styles = StyleSheet.create({
   },
   aboutText: {
     color: '#aaa',
-    fontSize: 16,
-    marginBottom: 8,
+    fontSize: 15,
+    marginBottom: 5,
   },
   // Plain "← Back", matching Browse. The filled blue slab it replaces was
   // full-width and pinned to the bottom, which also meant it overlapped the
   // About text on this screen.
+  // Back FLOWS after About rather than being pinned with marginTop:'auto'.
+  // Pinned, it printed on top of the About text as soon as the content grew
+  // past the 540dp window — 'auto' has no free space left to eat, and nothing
+  // here scrolls, so the two just overlapped.
   backButton: {
     alignSelf: 'flex-start',
     paddingHorizontal: 4,
     paddingVertical: 8,
-    marginTop: 'auto',
+    marginTop: 4,
   },
   backButtonText: {
     ...typeScale.label,

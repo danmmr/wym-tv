@@ -3,7 +3,7 @@ import {
   View,
   Text,
   StyleSheet,
-  TouchableOpacity,
+  Pressable,
   Image,
   Dimensions,
   DeviceEventEmitter,
@@ -911,11 +911,23 @@ export default function NowPlayingScreen({navigation}: any) {
       <Scrim />
 
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.navigate('Discovery')}>
+        {/* focusable={false} is load-bearing, not tidiness. This app owns the
+            D-pad (src/nav/dpad.ts) because Fire OS draws no highlight, but
+            Android's OWN focus system is still live underneath — and a
+            natively focused View gets clicked by DPAD_CENTER regardless of
+            what the app's handler does with the same press. On return from
+            Discovery, native focus lands on the first focusable view in this
+            tree, which is this button, so the next OK press anywhere on Now
+            Playing bounced straight back to Discovery. Verified by logging
+            this onPress: it fired 14s after the visit, with no touch. Any
+            Touchable on a screen that captures the D-pad needs this. */}
+        <Pressable
+          focusable={false}
+          onPress={() => navigation.navigate('Discovery')}>
           <Text style={[styles.deviceButton, {color: accentText}]}>
             {selectedDevice?.name}
           </Text>
-        </TouchableOpacity>
+        </Pressable>
         {connection === 'reconnecting' ? (
           <Text style={styles.reconnecting}>reconnecting…</Text>
         ) : null}

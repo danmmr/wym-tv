@@ -144,7 +144,7 @@ The first screen on a fresh install. Afterwards the app boots straight into Now 
 - The WiiM units listed in `hosts.data.json` appear **instantly**, with no scan.
 - **Scan network** sweeps the configured `/24` subnets, hosts 1 to 254, in bounded batches of 32 probes, stopping at the first subnet that yields a device. Found devices stream in as they answer.
 - **Add by IP** probes a single address, for a unit that is not in the config and not on a scanned subnet.
-- Selecting a device saves it and goes to Now Playing. Reopen this screen any time by pressing the device name in the Now Playing header.
+- Selecting a device saves it and goes to Now Playing. Reopen this screen any time from **Settings → Device**. (The device name in the Now Playing header opens it too, but that is a touch target, and a Fire TV remote has no touch — Settings is the way in with a remote.)
 
 ### Now Playing
 
@@ -196,6 +196,8 @@ Reached with ☰ from Browse. Shows the cover, album artist, track count and tot
 
 OK on a track plays the album **starting at that track**; the whole album still goes to the WiiM as one queue, so the rest plays on afterwards. Left or Back returns to Browse.
 
+**RIGHT** queues the focused track, and **☰ Menu** the whole album, to play *after the song playing now* — the rest of the queue is discarded, so what is playing finishes and then this is what follows. Nothing is interrupted: the queue on the device is edited in place (trim to the playing track, then append) rather than replaced, because `CreateQueue` mid-playback stops the device outright. With nothing playing there is nothing to queue behind, so it plays straight away.
+
 ### Queue
 
 The WiiM's current play queue, read back off the device.
@@ -208,9 +210,10 @@ The WiiM's current play queue, read back off the device.
 
 ### Settings
 
+- **Device**: shows the WiiM this remote is pointed at, and opens the Discovery screen to change it.
 - **Clear Cache**: forgets the selected device, the player state and the persisted station.
 - **Restart App**: a real process restart (new activity task, then `exit(0)`), equivalent to a Fire TV force-stop and relaunch. Use it when native state is stuck (UPnP sockets, GPU context), which a JS reload does not clear.
-- **About**: version and description.
+- **About**: version (from `package.json`, which is also where the build reads `versionName`) and description.
 
 ### Screensaver
 

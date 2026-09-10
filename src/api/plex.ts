@@ -1,6 +1,7 @@
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {randomOrderEnabled} from '../config/display';
+import {fold} from '../screens/searchText';
 import {PLEX} from '../config/plex';
 import type {QueueTrack} from './wiim';
 
@@ -336,8 +337,27 @@ function shuffled<T>(items: T[]): T[] {
   return arr;
 }
 
-const byName = (x: string, y: string): number =>
-  x.localeCompare(y, undefined, {sensitivity: 'base'});
+// Alphabetise by a PRECOMPUTED key rather than a comparator that does work.
+//
+// This used to be `x.localeCompare(y, undefined, {sensitivity: 'base'})` called
+// per comparison. Hermes ships without Intl and that options form falls off a
+// cliff on device: sorting this library's 2,782 artists measured 4,976 ms,
+// against 49 ms for the same sort with a plain `<`/`>` comparator over the same
+// data (Fire Stick, 2026-09-09). It was the single largest cost in the app —
+// larger than loading the catalog it sorts.
+//
+// fold() gives the ordering `sensitivity: 'base'` was chosen for: it is
+// case-insensitive and accent-insensitive, so Ólafur still lands among the Os
+// rather than after Z. It is also the same folding Search matches on, so the
+// roster and the search index agree about what a name "is". Computing it once
+// per item instead of once per comparison is what makes this cheap — a sort of
+// n items does O(n log n) comparisons but only n key builds.
+function sortedByName<T>(items: T[], name: (item: T) => string): T[] {
+  return items
+    .map(item => ({item, key: fold(name(item))}))
+    .sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0))
+    .map(keyed => keyed.item);
+}
 
 // A bounded sample of the library for the Albums grid. With RANDOM_ORDER = 1
 // (the default) Plex's own sort=random does the sampling server-side, so this
@@ -363,7 +383,7 @@ export async function getAlbumSample(
   if (albumCache && albumCache.length) {
     const ordered = randomOrderEnabled()
       ? shuffled(albumCache)
-      : albumCache.slice().sort((a, b) => byName(a.title, b.title));
+      : sortedByName(albumCache, a => a.title);
     sampleCache = ordered.slice(0, count);
     return sampleCache;
   }
@@ -421,9 +441,7 @@ export async function getArtists(
       });
     }
   }
-  artistsCache = Array.from(map.values()).sort((x, y) =>
-    byName(x.name, y.name),
-  );
+  artistsCache = sortedByName(Array.from(map.values()), a => a.name);
   return artistsCache;
 }
 

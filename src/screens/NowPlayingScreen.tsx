@@ -195,6 +195,11 @@ export default function NowPlayingScreen({navigation}: any) {
   // the couch is whether the track is any good, not what its bit depth is.
   // codec/bitDepth/sampleRate are still fetched — resTier needs them to decide
   // the tier — they are simply no longer printed.
+  //
+  // One exception (2026-09-13, by request): the LOSSY pill carries the bitrate
+  // — "LOSSY · 320" — because within that tier the number is the whole
+  // difference between a keeper and a re-rip. Hi-res and lossless stay bare;
+  // their bitrate is a property of the file, not a verdict on it.
   const resTier = (): {label: string; bg: string; fg: string} | null => {
     const codec = (playerState.codec || '').toUpperCase();
     const depth = parseInt(playerState.bitDepth || '0', 10);
@@ -209,7 +214,9 @@ export default function NowPlayingScreen({navigation}: any) {
       return {label: 'LOSSLESS', bg: '#2f6fb0', fg: '#ffffff'};
     }
     if (lossy) {
-      return {label: 'LOSSY', bg: '#3a3a3a', fg: '#d0d0d0'};
+      const kbps = parseInt(playerState.bitRate || '0', 10);
+      const label = kbps > 0 ? `LOSSY · ${kbps}` : 'LOSSY';
+      return {label, bg: '#3a3a3a', fg: '#d0d0d0'};
     }
     return null;
   };
@@ -1291,7 +1298,7 @@ const styles = StyleSheet.create({
     marginTop: space.sm,
   },
   // Quality-tier pill. It says the TIER — HI-RES / LOSSLESS / LOSSY — never the
-  // codec; the codec is the first thing on the format line beside it.
+  // codec; LOSSY alone also carries the kbps (see resTier).
   badge: {
     paddingHorizontal: space.sm,
     paddingVertical: 3,

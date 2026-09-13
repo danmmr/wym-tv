@@ -36,7 +36,7 @@ Features
 
 - Correct per-track artists on compilations
 
-- Quality badge on Now Playing — HI-RES, LOSSLESS or LOSSY at a glance
+- Quality badge on Now Playing — HI-RES, LOSSLESS or LOSSY at a glance (lossy tracks show their kbps, e.g. `LOSSY · 320`)
 
 - Shader screensaver with four modes, after 2 minutes idle
 

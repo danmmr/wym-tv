@@ -94,9 +94,12 @@ const PAGE = 800;
 
 // Fields Plex sends by default that this client never reads. Excluding them
 // roughly HALVES the wire payload (measured against a real server: 710 KB ->
-// 331 KB for an 800-album page), and on a Fire Stick the JSON parse — not the
-// transfer — is the expensive half. Anything mapped into PlexAlbum below must
-// stay OFF this list.
+// 331 KB for an 800-album page). Where the time goes depends on the page size:
+// on a Fire Stick an 800-album catalog page parses in 21-77 ms, which is a real
+// share of its round trip, but the 232 KB grid sample parses in 13-18 ms of a
+// ~300 ms request — there the transfer is the cost and the parse is noise
+// (measured 2026-09-09 and 2026-09-14). Anything mapped into PlexAlbum below
+// must stay OFF this list.
 const EXCLUDE_FIELDS =
   'summary,guid,parentGuid,titleSort,studio,originallyAvailableAt,art,' +
   'rating,loudnessAnalysisVersion,index,key,parentKey,parentThumb,' +
@@ -223,30 +226,6 @@ async function fetchAlbumPage(page: number): Promise<{
   };
 }
 
-// Populate the in-memory catalog from disk IF the saved copy is current, and
-// otherwise do nothing. The point is what it does NOT do: it never falls back
-// to paging the library, so a caller can try it on a hot path without risking
-// a multi-second fetch.
-//
-// The album grid uses this. getAlbumSample() samples from albumCache when it is
-// populated, so a warm cache means the landing tab is derived in memory with no
-// Plex request at all — instead of the ~3.1s "Loading albums…" measured on
-// device. A cold cache returns null and the caller takes its normal path.
-export async function warmCatalogFromDisk(): Promise<PlexAlbum[] | null> {
-  if (albumCache) {
-    return albumCache;
-  }
-  const [fingerprint, cached] = await Promise.all([
-    currentFingerprint(),
-    readCachedCatalog(),
-  ]);
-  if (cached && (fingerprint === null || cached.fingerprint === fingerprint)) {
-    albumCache = cached.albums;
-    return albumCache;
-  }
-  return null;
-}
-
 // In-flight guard. Browse prefetches the catalog on mount while a tab entry can
 // ask for it too; without this, two overlapping callers would each page the
 // whole library, since albumCache is only set once the last page lands.
@@ -368,6 +347,16 @@ function sortedByName<T>(items: T[], name: (item: T) => string): T[] {
 //
 // Cached for the session so navigating in and out of the grid keeps the same
 // layout, exactly as the previous full-catalog shuffle did.
+//
+// Deriving the grid from the DISK catalog instead was tried twice and is not a
+// win, and the second time the reason was measured (Fire Stick, 2026-09-14,
+// three cold starts): reading the ~1 MB catalog out of AsyncStorage costs
+// 115-322 ms for getItem plus 65-88 ms to parse, against ~300 ms for the
+// sample request it would replace — and the fingerprint probe that has to gate
+// a disk read runs alongside, so the two paths land within noise of each
+// other (189-392 ms vs 285-433 ms). The August rejection blamed the disk read
+// for being slow in absolute terms; it is not, it is merely no faster than
+// the request. Don't try a third time without a different idea.
 //
 // Deliberately does NOT populate albumCache: that is the complete-catalog cache
 // behind the Artists roster, per-artist discographies and Search, and seeding it

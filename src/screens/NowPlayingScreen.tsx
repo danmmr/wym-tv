@@ -90,9 +90,11 @@ import {
   buildAlbumQueue,
   buildStationQueue,
   getTrackInfo,
+  getArtistAlbumCount,
 } from '../api/plex';
 import type {StationKind} from '../api/plex';
 import {decodeHex} from '../api/hex';
+import {whyThisLine} from './whyThis';
 import {useAlbumArt} from '../hooks/useAlbumArt';
 import {
   useAccentColor,
@@ -319,6 +321,7 @@ export default function NowPlayingScreen({navigation}: any) {
       codec: undefined,
       trackArtist: undefined,
       albumRef: undefined,
+      context: undefined,
     });
     getTrackInfo(trackId)
       .then(info => {
@@ -326,6 +329,7 @@ export default function NowPlayingScreen({navigation}: any) {
         if (codecTrackRef.current !== trackId) {
           return;
         }
+        const context = {year: info.year, label: info.label};
         usePlayerStore.getState().setPlayerState({
           codec: info.codec || undefined,
           trackArtist: info.artist || undefined,
@@ -337,7 +341,22 @@ export default function NowPlayingScreen({navigation}: any) {
                 thumb: info.albumThumb,
               }
             : undefined,
+          context,
         });
+        // The per-artist count is a second, cached request, so the line shows
+        // year and label first and grows the count when it lands. Same
+        // staleness guard: a track that changed meanwhile keeps its own line.
+        if (info.artistKey) {
+          getArtistAlbumCount(info.artistKey)
+            .then(n => {
+              if (codecTrackRef.current === trackId && n > 0) {
+                usePlayerStore.getState().setPlayerState({
+                  context: {...context, artistAlbums: n},
+                });
+              }
+            })
+            .catch(() => {});
+        }
       })
       .catch(() => {});
   };
@@ -895,6 +914,7 @@ export default function NowPlayingScreen({navigation}: any) {
   }
 
   const tier = resTier();
+  const contextLine = whyThisLine(playerState.context);
   // While scrubbing the bar follows the preview; otherwise it follows the
   // device. Same expression either way, only the numerator changes.
   const shownPos = seekPreview ?? playerState.currentPos;
@@ -953,6 +973,11 @@ export default function NowPlayingScreen({navigation}: any) {
           <Text style={styles.album} numberOfLines={1}>
             {playerState.album}
           </Text>
+          {contextLine ? (
+            <Text style={styles.context} numberOfLines={1}>
+              {contextLine}
+            </Text>
+          ) : null}
 
           {tier ? (
             <View style={styles.formatRow}>
@@ -1289,6 +1314,15 @@ const styles = StyleSheet.create({
     ...type.body,
     color: color.textSecondary,
     fontWeight: '400',
+    ...onArt,
+  },
+  // The "why this?" line. A step down from the album line in both size and
+  // weight so it reads as an annotation, not a fourth title.
+  context: {
+    ...type.label,
+    color: color.textSecondary,
+    fontWeight: '400',
+    marginTop: 2,
     ...onArt,
   },
   formatRow: {

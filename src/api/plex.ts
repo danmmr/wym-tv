@@ -601,6 +601,12 @@ export interface PlexTrackInfo {
   albumTitle: string; // parentTitle
   albumArtist: string; // grandparentTitle — see the note below
   albumThumb: string; // parentThumb — RAW path; artUrl() builds the transcode
+  // Context for Now Playing's "why this?" line — also free, off the same
+  // response. '' when Plex doesn't say (a track with no year, an album with
+  // no label).
+  year: string; // parentYear — the ALBUM's year, which is what the line shows
+  label: string; // parentStudio — Plex's name for the record label
+  artistKey: string; // grandparentRatingKey — feeds getArtistAlbumCount()
 }
 
 export async function getTrackInfo(idOrPath: string): Promise<PlexTrackInfo> {
@@ -611,6 +617,9 @@ export async function getTrackInfo(idOrPath: string): Promise<PlexTrackInfo> {
     albumTitle: '',
     albumArtist: '',
     albumThumb: '',
+    year: '',
+    label: '',
+    artistKey: '',
   };
   if (!idOrPath) {
     return empty;
@@ -637,7 +646,39 @@ export async function getTrackInfo(idOrPath: string): Promise<PlexTrackInfo> {
     // the TRACK and the wrong one for the album as a whole.
     albumArtist: albumKey ? str(t.grandparentTitle) : '',
     albumThumb: albumKey ? str(t.parentThumb) : '',
+    year: str(t.parentYear),
+    label: str(t.parentStudio),
+    artistKey: str(t.grandparentRatingKey),
   };
+}
+
+// How many albums the library holds by one artist, for the same line. One
+// Container-Size=0 request (~500 bytes: Plex answers with the count and no
+// rows) the first time an artist comes up, then remembered for the session —
+// the count only changes when the library does. Filtered by artist.id rather
+// than read from /library/metadata/<artist>/children, which measured one
+// album SHORT for an artist whose compilation Plex files elsewhere; artist.id
+// matches what the catalog and the Artists tab count. Not derived from the
+// in-memory catalog because Now Playing must not be the screen that pays to
+// load it. 0 when Plex is unreachable — the line just omits the count.
+const artistAlbumCountCache = new Map<string, number>();
+
+export async function getArtistAlbumCount(artistKey: string): Promise<number> {
+  if (!artistKey) {
+    return 0;
+  }
+  const hit = artistAlbumCountCache.get(artistKey);
+  if (hit !== undefined) {
+    return hit;
+  }
+  const mc = await plexGet(
+    `/library/sections/${PLEX.musicSection}/all?type=9` +
+      `&artist.id=${encodeURIComponent(artistKey)}` +
+      '&X-Plex-Container-Start=0&X-Plex-Container-Size=0',
+  );
+  const n = Number(mc.totalSize ?? mc.size) || 0;
+  artistAlbumCountCache.set(artistKey, n);
+  return n;
 }
 
 // --- "radio" stations (no Sonic Analysis) -----------------------------------

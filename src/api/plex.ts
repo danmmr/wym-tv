@@ -681,6 +681,32 @@ export async function getArtistAlbumCount(artistKey: string): Promise<number> {
   return n;
 }
 
+// The album's styles (Plex's sub-genre tags: "Post-Punk", "Synth Pop"), for the
+// same line. They are NOT on the track item — a track carries Genre and Mood
+// but Style lives on the album only (checked against the server 2026-09-21) —
+// so this is one /library/metadata/<album> request the first time an album
+// comes up, then remembered for the session like the artist count. Plex's own
+// order is kept; the line decides how many to show. [] when the album has none
+// or Plex is unreachable — the line just omits them.
+const albumStylesCache = new Map<string, string[]>();
+
+export async function getAlbumStyles(albumKey: string): Promise<string[]> {
+  if (!albumKey) {
+    return [];
+  }
+  const hit = albumStylesCache.get(albumKey);
+  if (hit !== undefined) {
+    return hit;
+  }
+  const mc = await plexGet(`/library/metadata/${encodeURIComponent(albumKey)}`);
+  const a = (mc.Metadata || [])[0];
+  const styles: string[] = ((a?.Style || []) as any[])
+    .map(x => str(x?.tag).trim())
+    .filter(Boolean);
+  albumStylesCache.set(albumKey, styles);
+  return styles;
+}
+
 // --- "radio" stations (no Sonic Analysis) -----------------------------------
 // Replicates Plex's Library Radio / Deep Cuts as plain track queries, then
 // builds a finite WiiM queue from the result (the WiiM queue can't be endless).

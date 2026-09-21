@@ -2,8 +2,9 @@
 // and label off the per-track request, plus a per-artist album count from one
 // cached Container-Size=0 query. What's worth pinning: the count query's shape
 // (artist.id, not /children — see the note on getArtistAlbumCount), that it is
-// asked ONCE per artist per session, and that the line drops missing parts
-// rather than rendering "  ·  " around nothing.
+// asked ONCE per artist per session, that the album's styles come off the
+// ALBUM item (a track carries Genre but not Style) once per album, and that
+// the line drops missing parts rather than rendering "  ·  " around nothing.
 
 jest.mock('../src/config/plex', () => ({
   PLEX: {baseUrl: 'http://plex.test:32400', token: '', musicSection: 4},
@@ -12,8 +13,12 @@ jest.mock('../src/config/plex', () => ({
 jest.mock('axios', () => ({get: jest.fn()}));
 
 import axios from 'axios';
-import {getTrackInfo, getArtistAlbumCount} from '../src/api/plex';
-import {whyThisLine} from '../src/screens/whyThis';
+import {
+  getTrackInfo,
+  getArtistAlbumCount,
+  getAlbumStyles,
+} from '../src/api/plex';
+import {whyThisLine, STYLES_SHOWN} from '../src/screens/whyThis';
 
 const mockGet = axios.get as jest.Mock;
 
@@ -99,7 +104,89 @@ describe('getArtistAlbumCount', () => {
   });
 });
 
+describe('getAlbumStyles', () => {
+  // The album as Plex returns it: Style is a tag list, in Plex's order.
+  const ALBUM = {
+    ratingKey: '64785',
+    title: 'Substance 1987',
+    Style: [
+      {id: 37066, tag: 'Alternative Dance'},
+      {id: 35722, tag: 'Post-Punk'},
+      {id: 37068, tag: 'Synth Pop'},
+    ],
+  };
+
+  it('reads the tags off the album item, in order', async () => {
+    mockGet.mockResolvedValueOnce({
+      data: {MediaContainer: {Metadata: [ALBUM]}},
+    });
+    expect(await getAlbumStyles('64785')).toEqual([
+      'Alternative Dance',
+      'Post-Punk',
+      'Synth Pop',
+    ]);
+    const url: string = mockGet.mock.calls[0][0];
+    expect(url).toContain('/library/metadata/64785');
+  });
+
+  it('asks once per album per session', async () => {
+    mockGet.mockResolvedValueOnce({
+      data: {MediaContainer: {Metadata: [{...ALBUM, ratingKey: '1'}]}},
+    });
+    expect(await getAlbumStyles('1')).toHaveLength(3);
+    expect(await getAlbumStyles('1')).toHaveLength(3);
+    expect(mockGet).toHaveBeenCalledTimes(1);
+  });
+
+  it('is [] for an album with no styles, and for an empty key', async () => {
+    const bare: any = {...ALBUM, ratingKey: '2'};
+    delete bare.Style;
+    mockGet.mockResolvedValueOnce({data: {MediaContainer: {Metadata: [bare]}}});
+    expect(await getAlbumStyles('2')).toEqual([]);
+    expect(await getAlbumStyles('')).toEqual([]);
+    expect(mockGet).toHaveBeenCalledTimes(1);
+  });
+
+  it('propagates a failed request rather than remembering [] for it', async () => {
+    mockGet.mockRejectedValueOnce(new Error('unreachable'));
+    await expect(getAlbumStyles('3')).rejects.toThrow('unreachable');
+    mockGet.mockResolvedValueOnce({
+      data: {MediaContainer: {Metadata: [{...ALBUM, ratingKey: '3'}]}},
+    });
+    expect(await getAlbumStyles('3')).toHaveLength(3);
+  });
+});
+
 describe('whyThisLine', () => {
+  it('puts the styles before the album count', () => {
+    expect(
+      whyThisLine({
+        year: '1987',
+        label: 'Factory',
+        artistAlbums: 4,
+        styles: ['Post-Punk', 'Synth Pop'],
+      }),
+    ).toBe('1987  ·  Factory  ·  Post-Punk, Synth Pop  ·  4 albums in library');
+  });
+
+  it(`shows at most ${STYLES_SHOWN} styles, in Plex's order`, () => {
+    expect(STYLES_SHOWN).toBe(2);
+    expect(
+      whyThisLine({
+        year: '',
+        label: '',
+        styles: ['Alternative Dance', 'Post-Punk', 'Synth Pop', 'Dance-Rock'],
+      }),
+    ).toBe('Alternative Dance, Post-Punk');
+  });
+
+  it('drops an empty or missing style list', () => {
+    expect(whyThisLine({year: '1999', label: '', styles: []})).toBe('1999');
+    expect(whyThisLine({year: '1999', label: '', styles: ['', ' ']})).toBe(
+      '1999',
+    );
+  });
+
   it('joins year, label and count with a spaced middot', () => {
     expect(whyThisLine({year: '1987', label: 'Factory', artistAlbums: 4})).toBe(
       '1987  ·  Factory  ·  4 albums in library',

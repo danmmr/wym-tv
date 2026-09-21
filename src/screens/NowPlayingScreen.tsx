@@ -84,6 +84,7 @@ const {height: WIN_H} = Dimensions.get('window');
 const COVER = Math.round(WIN_H * 0.44);
 import {useDeviceStore} from '../store/deviceStore';
 import {usePlayerStore} from '../store/playerStore';
+import type {PlayerState} from '../store/playerStore';
 import {WiiMClient} from '../api/wiim';
 import {
   getRandomAlbum,
@@ -91,6 +92,7 @@ import {
   buildStationQueue,
   getTrackInfo,
   getArtistAlbumCount,
+  getAlbumStyles,
 } from '../api/plex';
 import type {StationKind} from '../api/plex';
 import {decodeHex} from '../api/hex';
@@ -343,16 +345,37 @@ export default function NowPlayingScreen({navigation}: any) {
             : undefined,
           context,
         });
-        // The per-artist count is a second, cached request, so the line shows
-        // year and label first and grows the count when it lands. Same
-        // staleness guard: a track that changed meanwhile keeps its own line.
+        // The per-artist count and the album's styles are two more cached
+        // requests, so the line shows year and label first and grows as each
+        // lands. Each patches the context the store holds NOW (not the one
+        // captured above) so whichever arrives second keeps the first's part.
+        // Same staleness guard: a track that changed meanwhile keeps its own
+        // line.
+        const patchContext = (
+          patch: Partial<NonNullable<PlayerState['context']>>,
+        ) => {
+          if (codecTrackRef.current !== trackId) {
+            return;
+          }
+          const cur = usePlayerStore.getState().context || context;
+          usePlayerStore.getState().setPlayerState({
+            context: {...cur, ...patch},
+          });
+        };
         if (info.artistKey) {
           getArtistAlbumCount(info.artistKey)
             .then(n => {
-              if (codecTrackRef.current === trackId && n > 0) {
-                usePlayerStore.getState().setPlayerState({
-                  context: {...context, artistAlbums: n},
-                });
+              if (n > 0) {
+                patchContext({artistAlbums: n});
+              }
+            })
+            .catch(() => {});
+        }
+        if (info.albumKey) {
+          getAlbumStyles(info.albumKey)
+            .then(styles => {
+              if (styles.length) {
+                patchContext({styles});
               }
             })
             .catch(() => {});

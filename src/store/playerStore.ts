@@ -36,9 +36,14 @@ export interface PlayerState {
   // The "why this?" line under the album title: the album's year and label,
   // and how many albums by this artist the library holds. Same lifecycle as
   // albumRef — from the per-track Plex request, cleared on every track change.
-  // artistAlbums arrives a beat later from its own (cached) count request and
-  // is undefined until it does, or when Plex could not say.
-  context?: {year: string; label: string; artistAlbums?: number};
+  // artistAlbums and styles each arrive a beat later from their own (cached)
+  // request and are undefined until they do, or when Plex could not say.
+  context?: {
+    year: string;
+    label: string;
+    artistAlbums?: number;
+    styles?: string[];
+  };
   // Accent color derived from the current cover art (adaptive theming). Undefined
   // until the art resolves; the UI falls back to the default blue when unset.
   accent?: string; // hex, e.g. "#3b9eff"

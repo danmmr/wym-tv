@@ -4,7 +4,7 @@
 // (artist.id, not /children — see the note on getArtistAlbumCount), that it is
 // asked ONCE per artist per session, that the album's styles come off the
 // ALBUM item (a track carries Genre but not Style) once per album, and that
-// the line drops missing parts rather than rendering "  ·  " around nothing.
+// the rows drop missing parts rather than rendering "  ·  " around nothing.
 
 jest.mock('../src/config/plex', () => ({
   PLEX: {baseUrl: 'http://plex.test:32400', token: '', musicSection: 4},
@@ -18,7 +18,7 @@ import {
   getArtistAlbumCount,
   getAlbumStyles,
 } from '../src/api/plex';
-import {whyThisLine, STYLES_SHOWN} from '../src/screens/whyThis';
+import {whyThisLines, STYLES_SHOWN} from '../src/screens/whyThis';
 
 const mockGet = axios.get as jest.Mock;
 
@@ -157,57 +157,55 @@ describe('getAlbumStyles', () => {
   });
 });
 
-describe('whyThisLine', () => {
-  it('puts the styles before the album count', () => {
+describe('whyThisLines', () => {
+  it('is three rows: year · label, styles, album count', () => {
     expect(
-      whyThisLine({
+      whyThisLines({
         year: '1987',
         label: 'Factory',
         artistAlbums: 4,
         styles: ['Post-Punk', 'Synth Pop'],
       }),
-    ).toBe('1987  ·  Factory  ·  Post-Punk, Synth Pop  ·  4 albums in library');
+    ).toEqual([
+      '1987  ·  Factory',
+      'Post-Punk, Synth Pop',
+      '4 albums in library',
+    ]);
   });
 
   it(`shows at most ${STYLES_SHOWN} styles, in Plex's order`, () => {
     expect(STYLES_SHOWN).toBe(2);
     expect(
-      whyThisLine({
+      whyThisLines({
         year: '',
         label: '',
         styles: ['Alternative Dance', 'Post-Punk', 'Synth Pop', 'Dance-Rock'],
       }),
-    ).toBe('Alternative Dance, Post-Punk');
-  });
-
-  it('drops an empty or missing style list', () => {
-    expect(whyThisLine({year: '1999', label: '', styles: []})).toBe('1999');
-    expect(whyThisLine({year: '1999', label: '', styles: ['', ' ']})).toBe(
-      '1999',
-    );
-  });
-
-  it('joins year, label and count with a spaced middot', () => {
-    expect(whyThisLine({year: '1987', label: 'Factory', artistAlbums: 4})).toBe(
-      '1987  ·  Factory  ·  4 albums in library',
-    );
+    ).toEqual(['Alternative Dance, Post-Punk']);
   });
 
   it('says "only album" for a count of one', () => {
-    expect(whyThisLine({year: '2001', label: '', artistAlbums: 1})).toBe(
-      '2001  ·  only album in library',
-    );
+    expect(whyThisLines({year: '2001', label: '', artistAlbums: 1})).toEqual([
+      '2001',
+      'only album in library',
+    ]);
   });
 
-  it('drops missing parts without leaving separators behind', () => {
-    expect(whyThisLine({year: '', label: 'Warp'})).toBe('Warp');
-    expect(whyThisLine({year: '1999', label: '', artistAlbums: 0})).toBe(
+  it('drops missing parts and empty rows without leaving separators', () => {
+    expect(whyThisLines({year: '', label: 'Warp'})).toEqual(['Warp']);
+    expect(whyThisLines({year: '1999', label: '', artistAlbums: 0})).toEqual([
       '1999',
-    );
+    ]);
+    expect(whyThisLines({year: '1999', label: '', styles: ['', ' ']})).toEqual([
+      '1999',
+    ]);
+    expect(whyThisLines({year: '', label: '', artistAlbums: 3})).toEqual([
+      '3 albums in library',
+    ]);
   });
 
   it('is empty when there is nothing to say', () => {
-    expect(whyThisLine(undefined)).toBe('');
-    expect(whyThisLine({year: '', label: ''})).toBe('');
+    expect(whyThisLines(undefined)).toEqual([]);
+    expect(whyThisLines({year: '', label: ''})).toEqual([]);
   });
 });

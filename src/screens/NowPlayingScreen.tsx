@@ -96,7 +96,7 @@ import {
 } from '../api/plex';
 import type {StationKind} from '../api/plex';
 import {decodeHex} from '../api/hex';
-import {whyThisLine} from './whyThis';
+import {whyThisLines} from './whyThis';
 import {useAlbumArt} from '../hooks/useAlbumArt';
 import {
   useAccentColor,
@@ -937,7 +937,7 @@ export default function NowPlayingScreen({navigation}: any) {
   }
 
   const tier = resTier();
-  const contextLine = whyThisLine(playerState.context);
+  const contextLines = whyThisLines(playerState.context);
   // While scrubbing the bar follows the preview; otherwise it follows the
   // device. Same expression either way, only the numerator changes.
   const shownPos = seekPreview ?? playerState.currentPos;
@@ -996,11 +996,11 @@ export default function NowPlayingScreen({navigation}: any) {
           <Text style={styles.album} numberOfLines={1}>
             {playerState.album}
           </Text>
-          {contextLine ? (
-            <Text style={styles.context} numberOfLines={1}>
-              {contextLine}
+          {contextLines.map(row => (
+            <Text key={row} style={styles.context} numberOfLines={1}>
+              {row}
             </Text>
-          ) : null}
+          ))}
 
           {tier ? (
             <View style={styles.formatRow}>
@@ -1339,8 +1339,9 @@ const styles = StyleSheet.create({
     fontWeight: '400',
     ...onArt,
   },
-  // The "why this?" line. A step down from the album line in both size and
-  // weight so it reads as an annotation, not a fourth title.
+  // The "why this?" rows (year · label / styles / album count). A step down
+  // from the album line in both size and weight so they read as an
+  // annotation, not more titles.
   context: {
     ...type.label,
     color: color.textSecondary,

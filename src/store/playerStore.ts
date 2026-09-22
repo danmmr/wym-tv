@@ -1,10 +1,22 @@
 import {create} from 'zustand';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import type {StationKind} from '../api/plex';
 
 // Persist which station is driving the queue so auto-refill survives an app
 // restart / redeploy (JS state is otherwise lost, and a station playing from
 // before the restart would stop refilling until re-pressed).
 const STATION_KEY = 'wiimtv.stationKind';
+const STATION_LABEL_KEY = 'wiimtv.stationLabel';
+
+// A persisted station string is anything we would have written, but it is read
+// back from disk and could be left over from an older build — so it is checked
+// rather than cast. Style ids are digits: Plex tag keys are numeric, and
+// refusing anything else keeps a junk value out of a URL.
+function isStationKind(raw: string | null): raw is StationKind {
+  return (
+    raw === 'library' || raw === 'deepcuts' || /^style:\d+$/.test(raw || '')
+  );
+}
 
 export interface PlayerState {
   status: 'play' | 'pause' | 'stop';
@@ -49,8 +61,14 @@ export interface PlayerState {
   accent?: string; // hex, e.g. "#3b9eff"
   // Which "radio" station is currently driving the queue (for auto-refill), or
   // null when a finite album/lucky queue is playing. Set when a station starts,
-  // cleared when any album queue is pushed.
-  stationKind?: 'library' | 'deepcuts' | null;
+  // cleared when any album queue is pushed. A style station carries its Plex
+  // tag id in the string itself (`style:259016`) so the refill can rebuild the
+  // same query with nothing else to persist.
+  stationKind?: StationKind | null;
+  // Display name for the running station, e.g. "Drone Radio". Only the tag id
+  // is recoverable from stationKind, and re-fetching the style list purely to
+  // turn it back into a name would be a network call to render a label.
+  stationLabel?: string;
 }
 
 interface PlayerStore extends PlayerState {
@@ -71,6 +89,7 @@ const defaultState: PlayerState = {
   mute: false,
   mode: 'unknown',
   stationKind: null,
+  stationLabel: '',
 };
 
 export const usePlayerStore = create<PlayerStore>(set => ({
@@ -83,8 +102,12 @@ export const usePlayerStore = create<PlayerStore>(set => ({
       const sk = state.stationKind;
       if (sk) {
         AsyncStorage.setItem(STATION_KEY, sk).catch(() => {});
+        AsyncStorage.setItem(STATION_LABEL_KEY, state.stationLabel || '').catch(
+          () => {},
+        );
       } else {
         AsyncStorage.removeItem(STATION_KEY).catch(() => {});
+        AsyncStorage.removeItem(STATION_LABEL_KEY).catch(() => {});
       }
     }
   },
@@ -92,18 +115,18 @@ export const usePlayerStore = create<PlayerStore>(set => ({
   clearCache: () => {
     set(defaultState);
     AsyncStorage.removeItem(STATION_KEY).catch(() => {});
+    AsyncStorage.removeItem(STATION_LABEL_KEY).catch(() => {});
   },
 }));
 
 // Restore the persisted station (if any) into the store at startup so the poll
 // loop resumes auto-refilling a station that was playing before the restart.
-export async function loadPersistedStation(): Promise<
-  'library' | 'deepcuts' | null
-> {
+export async function loadPersistedStation(): Promise<StationKind | null> {
   try {
     const raw = await AsyncStorage.getItem(STATION_KEY);
-    if (raw === 'library' || raw === 'deepcuts') {
-      usePlayerStore.setState({stationKind: raw});
+    if (isStationKind(raw)) {
+      const label = (await AsyncStorage.getItem(STATION_LABEL_KEY)) || '';
+      usePlayerStore.setState({stationKind: raw, stationLabel: label});
       return raw;
     }
   } catch {}

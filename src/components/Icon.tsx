@@ -51,6 +51,11 @@ const PATHS = {
   // doing all the work and the icons none.
   deepcuts:
     'M3 14.5c1.6 0 1.6-2 3.2-2s1.6 2 3.2 2 1.6-2 3.2-2 1.6 2 3.2 2 1.6-2 3.2-2 1.6 2 3.2 2v2c-1.6 0-1.6-2-3.2-2s-1.6 2-3.2 2-1.6-2-3.2-2-1.6 2-3.2 2-1.6-2-3.2-2-1.6 2-3.2 2zM7 4h1.8v6.6H7zm4.1 2h1.8v4.6h-1.8zm4.1-3H17v7.6h-1.8z',
+  // Style Radio. The broadcast arcs of `radio` would repeat the station glyph a
+  // third time, so this is the same arcs over a stack of tags instead: the
+  // silhouette says "a list of categories", which is what the tile opens.
+  styles:
+    'M12 2.6a3 3 0 100 6 3 3 0 000-6zm0 1.8a1.2 1.2 0 110 2.4 1.2 1.2 0 010-2.4zM7.6 2.2l1.3 1.3a5 5 0 000 7.1l-1.3 1.3a6.9 6.9 0 010-9.7zm8.8 0a6.9 6.9 0 010 9.7l-1.3-1.3a5 5 0 000-7.1zM4 14h16v2H4zm0 4h16v2H4z',
   album:
     'M12 3a9 9 0 100 18 9 9 0 000-18zm0 2a7 7 0 110 14 7 7 0 010-14zm0 5.2a1.8 1.8 0 100 3.6 1.8 1.8 0 000-3.6z',
   browse: 'M4 5h7v6H4zm9 0h7v6h-7zM4 13h7v6H4zm9 0h7v6h-7z',

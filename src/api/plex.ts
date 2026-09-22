@@ -707,18 +707,207 @@ export async function getAlbumStyles(albumKey: string): Promise<string[]> {
   return styles;
 }
 
+// --- styles -----------------------------------------------------------------
+// Plex's "By Style" secondary filter: the sub-genre vocabulary carried by the
+// albums themselves (Drone, IDM, Post-Punk...). This library has 262 of them.
+//
+// Counts are NOT in that listing. Plex gives key and title only, and
+// includeMeta adds nothing — so "how many albums carry this style" costs one
+// Container-Size=0 probe per style. That is why the whole thing is cached on
+// disk against the same library fingerprint as the album catalog: the fan-out
+// runs once per retag, not once per launch.
+const STYLES_KEY = 'plex.styles.v1';
+
+export interface PlexStyle {
+  key: string; // Plex tag id, the value of the `style=` filter
+  title: string; // display name, e.g. "Dark Ambient"
+  albums: number; // how many albums carry this style
+}
+
+interface CachedStyles {
+  fingerprint: string;
+  styles: PlexStyle[];
+}
+
+// How many count probes are in flight at once. The requests are tiny, but 262
+// at once is a good way to make a Plex server stop answering; a modest pool
+// keeps the whole sweep near a second on the LAN without hammering it.
+const STYLE_COUNT_CONCURRENCY = 8;
+
+let stylesPromise: Promise<PlexStyle[]> | null = null;
+
+async function fetchStyleList(): Promise<Array<{key: string; title: string}>> {
+  const mc = await plexGet(
+    `/library/sections/${PLEX.musicSection}/style?type=9`,
+  );
+  const out: Array<{key: string; title: string}> = [];
+  for (const d of mc.Directory || []) {
+    const key = str(d.key);
+    const title = str(d.title).trim();
+    if (key && title) {
+      out.push({key, title});
+    }
+  }
+  return out;
+}
+
+// Albums carrying one style. Container-Size=0 asks Plex for the tally only —
+// totalSize comes back with no Metadata at all, so this stays cheap enough to
+// run a few hundred times.
+async function countStyleAlbums(key: string): Promise<number> {
+  try {
+    const mc = await plexGet(
+      `/library/sections/${PLEX.musicSection}/all` +
+        `?type=9&style=${encodeURIComponent(key)}` +
+        '&X-Plex-Container-Start=0&X-Plex-Container-Size=0',
+    );
+    const n = Number(mc.totalSize ?? mc.size ?? 0);
+    return Number.isFinite(n) ? n : 0;
+  } catch {
+    return 0; // one failed probe must not sink the whole list
+  }
+}
+
+// Run `work` over `items` with at most `limit` in flight. Written out rather
+// than pulled in: this is the only place in the app that needs it, and the
+// alternative is Promise.all over 262 requests at once.
+async function mapPool<T, R>(
+  items: T[],
+  limit: number,
+  work: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const out: R[] = new Array(items.length);
+  let next = 0;
+  const runner = async () => {
+    for (;;) {
+      const i = next++;
+      if (i >= items.length) {
+        return;
+      }
+      out[i] = await work(items[i]);
+    }
+  };
+  await Promise.all(
+    Array.from({length: Math.min(limit, items.length)}, runner),
+  );
+  return out;
+}
+
+// Alphabetical by display name, folded.
+//
+// fold() rather than localeCompare with an options object: Hermes ships with no
+// Intl, where that comparator is ~100x a plain compare AND its case handling is
+// ASCII-only, so it would be both slow and wrong on the device.
+function sortStyles(styles: PlexStyle[]): PlexStyle[] {
+  return styles.slice().sort((a, b) => {
+    const fa = fold(a.title);
+    const fb = fold(b.title);
+    return fa < fb ? -1 : fa > fb ? 1 : 0;
+  });
+}
+
+async function readCachedStyles(): Promise<CachedStyles | null> {
+  try {
+    const raw = await AsyncStorage.getItem(STYLES_KEY);
+    if (!raw) {
+      return null;
+    }
+    const parsed = JSON.parse(raw);
+    if (
+      !parsed ||
+      typeof parsed.fingerprint !== 'string' ||
+      !Array.isArray(parsed.styles) ||
+      !parsed.styles.length
+    ) {
+      return null;
+    }
+    return parsed as CachedStyles;
+  } catch {
+    return null;
+  }
+}
+
+// Every style in the library with its album count, alphabetical. Cached in
+// memory for the session and on disk until the library changes.
+export async function getStyles(): Promise<PlexStyle[]> {
+  if (!stylesPromise) {
+    stylesPromise = loadStyles().catch(e => {
+      stylesPromise = null; // a failure must not be cached as "no styles"
+      throw e;
+    });
+  }
+  return stylesPromise;
+}
+
+async function loadStyles(): Promise<PlexStyle[]> {
+  const fingerprint = await currentFingerprint();
+  const cached = await readCachedStyles();
+  if (cached && (fingerprint === null || cached.fingerprint === fingerprint)) {
+    return cached.styles;
+  }
+  const list = await fetchStyleList();
+  const counts = await mapPool(list, STYLE_COUNT_CONCURRENCY, s =>
+    countStyleAlbums(s.key),
+  );
+  const styles = sortStyles(
+    list.map((s, i) => ({key: s.key, title: s.title, albums: counts[i]})),
+  );
+  if (fingerprint && styles.length) {
+    AsyncStorage.setItem(
+      STYLES_KEY,
+      JSON.stringify({fingerprint, styles} as CachedStyles),
+    ).catch(() => {});
+  }
+  return styles;
+}
+
+// The styles worth offering as a station. A style carried by two albums makes a
+// station that repeats immediately, so the menu takes only those with real
+// depth behind them — the same shape of list Plexamp shows, which stops well
+// short of the full vocabulary.
+export function stationStyles(
+  styles: PlexStyle[],
+  minAlbums: number,
+): PlexStyle[] {
+  const big = styles.filter(s => s.albums >= minAlbums);
+  // A threshold set higher than anything in the library would empty the menu
+  // outright; falling back to the whole list is friendlier than a blank screen.
+  return big.length ? big : styles;
+}
+
 // --- "radio" stations (no Sonic Analysis) -----------------------------------
 // Replicates Plex's Library Radio / Deep Cuts as plain track queries, then
 // builds a finite WiiM queue from the result (the WiiM queue can't be endless).
-//   library  = random tracks across the whole library
-//   deepcuts = random tracks that have never been played (viewCount=0)
-export type StationKind = 'library' | 'deepcuts';
+//   library     = random tracks across the whole library
+//   deepcuts    = random tracks that have never been played (viewCount=0)
+//   style:<id>  = random tracks from albums carrying that style tag
+//
+// Style is an ALBUM tag, not a track one. `type=10&style=<id>` returns an empty
+// container — the filter silently matches nothing rather than erroring — so the
+// track query has to reach through the album with `album.style`. Both were
+// checked against a bogus tag id, which returns 0 either way; that negative
+// control is what distinguishes a working filter from an ignored one.
+export type StationKind = 'library' | 'deepcuts' | `style:${string}`;
+
+export function styleStation(key: string): StationKind {
+  return `style:${key}`;
+}
+
+// The tag id inside a style station, or '' for the two fixed stations.
+export function stationStyleKey(kind: StationKind): string {
+  return kind.startsWith('style:') ? kind.slice('style:'.length) : '';
+}
 
 export async function buildStationQueue(
   kind: StationKind,
   size = 50,
 ): Promise<QueueTrack[]> {
-  const filter = kind === 'deepcuts' ? '&viewCount=0' : '';
+  const styleKey = stationStyleKey(kind);
+  const filter = styleKey
+    ? `&album.style=${encodeURIComponent(styleKey)}`
+    : kind === 'deepcuts'
+    ? '&viewCount=0'
+    : '';
   const mc = await plexGet(
     `/library/sections/${PLEX.musicSection}/all` +
       `?type=10&sort=random${filter}` +

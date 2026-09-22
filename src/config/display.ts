@@ -53,3 +53,17 @@ const on = (v: Toggle): boolean => v === 1;
 export const randomOrderEnabled = (): boolean => on(RANDOM_ORDER);
 export const presetsEnabled = (): boolean => on(SHOW_PRESETS);
 export const inputsEnabled = (): boolean => on(SHOW_INPUTS);
+
+/**
+ * Smallest style that earns a place in Style Radio's menu, counted in albums.
+ *
+ * The library carries a few hundred Style tags and most are tiny — 69 of them
+ * sit on a single album, which would make a "station" that repeats one record.
+ * Only styles at or above this many albums are offered.
+ *
+ * 40 is tuned to this library: it yields ~51 styles, matching the list Plexamp
+ * shows for the same tags to within one or two entries. Lower it for a longer
+ * menu, raise it for a shorter one. Set it above the biggest style and the
+ * filter gives up and shows everything rather than an empty menu.
+ */
+export const STYLE_MIN_ALBUMS = 40;

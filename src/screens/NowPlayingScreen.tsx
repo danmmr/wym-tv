@@ -6,6 +6,7 @@ import {
   Pressable,
   Image,
   Dimensions,
+  FlatList,
   DeviceEventEmitter,
   BackHandler,
 } from 'react-native';
@@ -55,10 +56,14 @@ const MENU_ROWS: string[][] = [
   // needs no special handling — Up from anywhere in the tiles lands on it, and
   // Down returns to the first tile.
   ['search'],
-  ['lucky', 'queue', 'album'],
-  ['libradio', 'deepcuts', 'recent'],
+  ['lucky', 'queue', 'album', 'recent'],
+  ['libradio', 'deepcuts', 'styleradio'],
   ['browse', 'settings', 'saver'],
 ];
+
+// The widest tile row. The search bar spans it, and the rows are centred, so
+// this is what the overlay's width comes to.
+const MENU_COLS = Math.max(...MENU_ROWS.map(r => r.length));
 
 // The one row that is not a tile.
 const isSearchRow = (key: string) => key === 'search';
@@ -71,6 +76,7 @@ const MENU_META: Record<string, {label: string; icon: IconName}> = {
   album: {label: 'Album', icon: 'album'},
   libradio: {label: 'Library Radio', icon: 'radio'},
   deepcuts: {label: 'Deep Cuts', icon: 'deepcuts'},
+  styleradio: {label: 'Style Radio', icon: 'styles'},
   recent: {label: 'Recently Added', icon: 'recent'},
   search: {label: 'Search albums & artists…', icon: 'search'},
   browse: {label: 'Browse', icon: 'browse'},
@@ -80,7 +86,31 @@ const MENU_META: Record<string, {label: string; icon: IconName}> = {
 
 // The window is 960x540 dp (1080p at density 320). Vertical space is the scarce
 // resource here, not horizontal, so the hero cover is sized off height.
-const {height: WIN_H} = Dimensions.get('window');
+const {height: WIN_H, width: WIN_W} = Dimensions.get('window');
+
+// The Style Radio picker's grid. Four across fits this library's longest style
+// names ("Free Improvisation", "Psychedelic Rock") at label size without
+// truncating, and keeps the whole list inside a handful of D-pad rows.
+const STYLE_COLS = 4;
+const STYLE_GAP = space.sm;
+const STYLE_PAD = 40; // breathing room at the screen edges
+const STYLE_CARD_W = Math.floor(
+  (WIN_W - STYLE_PAD * 2 - STYLE_GAP * (STYLE_COLS - 1)) / STYLE_COLS,
+);
+const STYLE_CARD_H = 56;
+const STYLE_ROW_H = STYLE_CARD_H + STYLE_GAP;
+// How many rows are on screen at once. The header takes the top, and the grid
+// is what scrolls.
+//
+// The height is then snapped back to a whole number of rows. Left as the raw
+// space available it ends on a half-drawn tile, which reads as a rendering
+// fault rather than as "there is more below" — and the scroll steps by whole
+// rows anyway, so the remainder was never usable.
+// 150 is the header above plus the footer hint below. It is deliberately tight:
+// at 190 the grid loses a whole row to whitespace it cannot use, since the
+// scroll steps by rows and a sixth row fits with 40dp to spare.
+const STYLE_VISIBLE_ROWS = Math.max(1, Math.floor((WIN_H - 150) / STYLE_ROW_H));
+const STYLE_LIST_H = STYLE_VISIBLE_ROWS * STYLE_ROW_H;
 const COVER = Math.round(WIN_H * 0.44);
 import {useDeviceStore} from '../store/deviceStore';
 import {usePlayerStore} from '../store/playerStore';
@@ -93,10 +123,16 @@ import {
   getTrackInfo,
   getArtistAlbumCount,
   getAlbumStyles,
+  getStyles,
+  stationStyles,
+  styleStation,
 } from '../api/plex';
-import type {StationKind} from '../api/plex';
+import type {StationKind, PlexStyle} from '../api/plex';
+import {STYLE_MIN_ALBUMS} from '../config/display';
 import {decodeHex} from '../api/hex';
 import {whyThisLine} from './whyThis';
+import {scrollTopFor} from './browseNav';
+import {styleChip, styleGlyph} from './styleColor';
 import {useAlbumArt} from '../hooks/useAlbumArt';
 import {
   useAccentColor,
@@ -142,12 +178,31 @@ export default function NowPlayingScreen({navigation}: any) {
   const [menuPos, setMenuPos] = useState({row: 0, col: 0});
   const menuPosRef = useRef({row: 0, col: 0});
   const menuOpenRef = useRef(false);
+  // The Style Radio picker: a second overlay, opened FROM the ⋮ overlay and
+  // replacing it. Same ref-plus-state pairing as the menu, for the same reason.
+  const [stylesOpen, setStylesOpen] = useState(false);
+  const stylesOpenRef = useRef(false);
+  const [styleList, setStyleList] = useState<PlexStyle[]>([]);
+  const [styleErr, setStyleErr] = useState('');
+  const [stylePos, setStylePos] = useState(0);
+  const stylePosRef = useRef(0);
+  const styleListRef = useRef<PlexStyle[]>([]);
+  // Top visible row. Kept in BOTH a ref and state: the D-pad handler reads the
+  // ref (it is registered once and must not go stale), while the scroll rail
+  // renders from the state.
+  const styleTopRef = useRef(0);
+  const [styleTop, setStyleTop] = useState(0);
+  const styleGridRef = useRef<FlatList<PlexStyle>>(null);
   // Volume is a transient overlay, not a permanent row: showing the bar only
   // while it is being changed is what buys the hero its vertical space.
   const [volumeShown, setVolumeShown] = useState(false);
   const volumeTimerRef = useRef<NodeJS.Timeout>();
   const showScreensaverRef = useRef(false);
   const focusedKey = ROWS[focusRow]?.[focusCol];
+  // Derived once per render for the picker's rail and footer, so neither has to
+  // recompute the same two values inside the list's renderItem.
+  const styleRows = Math.ceil(styleList.length / STYLE_COLS);
+  const focusedStyle = styleList[stylePos];
   const pollTimeoutRef = useRef<NodeJS.Timeout>();
   // Consecutive failed polls. Drives the reconnecting banner and a backoff so a
   // dropped WiiM/Plex isn't hammered every 1.5s while it's unreachable.
@@ -573,7 +628,9 @@ export default function NowPlayingScreen({navigation}: any) {
       await c.playAlbumQueue(queue, 0);
       // Mark this as a station so the poll loop keeps it refilled.
       refillAtRef.current = 0;
-      usePlayerStore.getState().setPlayerState({stationKind: kind});
+      usePlayerStore
+        .getState()
+        .setPlayerState({stationKind: kind, stationLabel: label});
       setLastAction(`${label} — auto-refilling`);
       pollStatus();
     } catch (e: any) {
@@ -641,6 +698,9 @@ export default function NowPlayingScreen({navigation}: any) {
       case 'deepcuts':
         handleStation('deepcuts', 'Deep Cuts');
         break;
+      case 'styleradio':
+        openStyles();
+        break;
       case 'recent':
         // Jump straight to Browse's Recent tab to pick a recently added album.
         navigation.navigate('Browse', {initialTab: 'recent'});
@@ -677,6 +737,45 @@ export default function NowPlayingScreen({navigation}: any) {
   const closeMenu = () => {
     menuOpenRef.current = false;
     setMenuOpen(false);
+  };
+
+  // Open the Style Radio picker. The list is fetched on open rather than at
+  // mount: it is one request plus a count probe per style, and a player that
+  // never opens this menu should never pay for it. getStyles caches in memory
+  // and on disk, so a second open is free.
+  const openStyles = () => {
+    stylePosRef.current = 0;
+    setStylePos(0);
+    styleTopRef.current = 0;
+    setStyleTop(0);
+    setStyleErr('');
+    stylesOpenRef.current = true;
+    setStylesOpen(true);
+    if (styleListRef.current.length) {
+      return; // already loaded this session
+    }
+    getStyles()
+      .then(all => {
+        const shown = stationStyles(all, STYLE_MIN_ALBUMS);
+        styleListRef.current = shown;
+        setStyleList(shown);
+        if (!shown.length) {
+          setStyleErr('No styles found');
+        }
+      })
+      .catch(e => setStyleErr(e?.message || 'Could not load styles'));
+  };
+
+  const closeStyles = () => {
+    stylesOpenRef.current = false;
+    setStylesOpen(false);
+  };
+
+  // Start a station for one style. The tag id rides inside stationKind, so the
+  // poll loop's refill rebuilds the same query with nothing extra to carry.
+  const playStyle = (style: PlexStyle) => {
+    closeStyles();
+    handleStation(styleStation(style.key), `${style.title} Radio`);
   };
 
   // The overlay owns the D-pad while it is up, through its OWN subscription
@@ -732,6 +831,75 @@ export default function NowPlayingScreen({navigation}: any) {
     // handler reads comes through refs, so it must not re-register per move.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [menuOpen]);
+
+  // The style picker owns the D-pad while it is up, by the same stack trick the
+  // ⋮ overlay uses — its own subscription pushed on top, rather than a second
+  // focus model branched into an existing handler.
+  useEffect(() => {
+    if (!stylesOpen) {
+      return;
+    }
+    const unsub = subscribeNav((k: string) => {
+      const list = styleListRef.current;
+      const n = list.length;
+      const moveStyle = (i: number) => {
+        if (i < 0 || i >= n) {
+          return; // a clamped move would only repaint the same tile
+        }
+        stylePosRef.current = i;
+        setStylePos(i);
+        const top = scrollTopFor(
+          Math.floor(i / STYLE_COLS),
+          styleTopRef.current,
+          STYLE_VISIBLE_ROWS,
+        );
+        if (top !== styleTopRef.current) {
+          styleTopRef.current = top;
+          setStyleTop(top);
+          styleGridRef.current?.scrollToOffset({
+            offset: top * STYLE_ROW_H,
+            animated: true,
+          });
+        }
+      };
+      const i = stylePosRef.current;
+      const col = i % STYLE_COLS;
+      if (k === 'left') {
+        // Left off the first column backs out, rather than dying against an
+        // edge: it is the only press that is otherwise wasted here.
+        if (col === 0) {
+          closeStyles();
+        } else {
+          moveStyle(i - 1);
+        }
+      } else if (k === 'right') {
+        if (col < STYLE_COLS - 1) {
+          moveStyle(i + 1);
+        }
+      } else if (k === 'up') {
+        if (i < STYLE_COLS) {
+          closeStyles();
+        } else {
+          moveStyle(i - STYLE_COLS);
+        }
+      } else if (k === 'down') {
+        // The last row is usually short. Down from above it should reach its
+        // final tile rather than do nothing, so this clamps into the row.
+        const target = i + STYLE_COLS;
+        moveStyle(target < n ? target : n - 1);
+      } else if (k === 'select') {
+        const sel = list[stylePosRef.current];
+        if (sel) {
+          playStyle(sel);
+        }
+      } else if (k === 'menu' || k === 'back') {
+        closeStyles();
+      }
+    });
+    return unsub;
+    // Same contract as the menu's subscription above: open/closed only.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stylesOpen]);
 
   // Clear the volume-hide timer on unmount so it cannot fire a setState into
   // an unmounted screen. Note the double arrow: clearTimeout returns undefined,
@@ -893,6 +1061,11 @@ export default function NowPlayingScreen({navigation}: any) {
       // Hardware BACK exits the screensaver and is consumed so it does not close
       // the app. When the screensaver is not up, fall through to default behavior.
       const backSub = BackHandler.addEventListener('hardwareBackPress', () => {
+        // The style picker sits above the ⋮ overlay, so it is checked first.
+        if (stylesOpenRef.current) {
+          closeStyles();
+          return true;
+        }
         if (menuOpenRef.current) {
           closeMenu();
           return true;
@@ -1146,6 +1319,88 @@ export default function NowPlayingScreen({navigation}: any) {
           </View>
         </View>
       ) : null}
+
+      {stylesOpen ? (
+        <View style={[styles.menuOverlay, styles.styleOverlay]}>
+          <View style={styles.styleHeader}>
+            <Icon name="styles" size={26} color={accent} />
+            <Text style={styles.styleTitle}>Style Radio</Text>
+            <Text style={styles.styleHint}>
+              {styleList.length ? `${styleList.length} styles` : ''}
+            </Text>
+          </View>
+          {styleErr ? (
+            <Text style={styles.styleMessage}>{styleErr}</Text>
+          ) : !styleList.length ? (
+            <Text style={styles.styleMessage}>Loading styles…</Text>
+          ) : (
+            <>
+              <FlatList
+                ref={styleGridRef}
+                data={styleList}
+                keyExtractor={it => it.key}
+                numColumns={STYLE_COLS}
+                style={styles.styleGrid}
+                contentContainerStyle={styles.styleGridContent}
+                columnWrapperStyle={styles.styleGridRow}
+                scrollEnabled={false}
+                showsVerticalScrollIndicator={false}
+                initialNumToRender={STYLE_VISIBLE_ROWS * STYLE_COLS}
+                renderItem={({item, index}) => {
+                  const on = index === stylePos;
+                  return (
+                    <Focusable
+                      focused={on}
+                      scale={1.04}
+                      ringColor={accent}
+                      style={on ? styles.styleCardOn : styles.styleCard}>
+                      <View
+                        style={[
+                          styles.styleChip,
+                          {backgroundColor: styleChip(item.title, on)},
+                        ]}>
+                        <Icon
+                          name="radio"
+                          size={17}
+                          color={styleGlyph(item.title, on)}
+                        />
+                      </View>
+                      <Text
+                        style={[
+                          styles.styleName,
+                          on ? styles.styleNameOn : null,
+                        ]}
+                        numberOfLines={1}>
+                        {item.title}
+                      </Text>
+                      <Text style={styles.styleCount}>{item.albums}</Text>
+                    </Focusable>
+                  );
+                }}
+              />
+              {styleRows > STYLE_VISIBLE_ROWS ? (
+                <View style={styles.styleRail}>
+                  <View
+                    style={[
+                      styles.styleRailThumb,
+                      {
+                        height: `${(STYLE_VISIBLE_ROWS / styleRows) * 100}%`,
+                        top: `${(styleTop / styleRows) * 100}%`,
+                        backgroundColor: accent,
+                      },
+                    ]}
+                  />
+                </View>
+              ) : null}
+              <Text style={styles.styleFooter} numberOfLines={1}>
+                {focusedStyle
+                  ? `OK plays a ${STATION_SIZE}-track ${focusedStyle.title} station, drawn from ${focusedStyle.albums} albums`
+                  : ''}
+              </Text>
+            </>
+          )}
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -1243,6 +1498,18 @@ function VolumeBar({
     </Animated.View>
   );
 }
+
+// The style picker's tile, shared by the idle and focused variants below.
+const STYLE_CARD = {
+  width: STYLE_CARD_W,
+  height: STYLE_CARD_H,
+  flexDirection: 'row' as const,
+  alignItems: 'center' as const,
+  paddingHorizontal: 12,
+  gap: space.sm,
+  borderRadius: radius.md,
+  backgroundColor: 'rgba(255,255,255,0.06)',
+};
 
 const styles = StyleSheet.create({
   container: {
@@ -1491,7 +1758,7 @@ const styles = StyleSheet.create({
   // Width is derived from the tile grid rather than typed as a number, so the
   // bar keeps lining up with the three columns if a tile ever resizes.
   menuSearchBar: {
-    width: 190 * 3 + space.md * 2,
+    width: 190 * MENU_COLS + space.md * (MENU_COLS - 1),
     flexDirection: 'row',
     alignItems: 'center',
     gap: space.md,
@@ -1501,6 +1768,118 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.05)',
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.14)',
+  },
+  // A heavier scrim than the ⋮ overlay's. That one is nine large tiles with
+  // plenty of space between them, where the cover showing through reads as
+  // depth; this is a dense grid of small type, where the same bleed puts the
+  // hero's title straight through the style names.
+  styleOverlay: {
+    backgroundColor: '#040404',
+  },
+  styleHeader: {
+    position: 'absolute',
+    top: 28,
+    left: STYLE_PAD,
+    right: STYLE_PAD,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.sm,
+  },
+  styleTitle: {
+    ...type.label,
+    color: color.textPrimary,
+    flex: 1,
+  },
+  styleHint: {
+    ...type.label,
+    fontWeight: '400',
+    color: color.textDim,
+  },
+  styleMessage: {
+    ...type.label,
+    fontWeight: '400',
+    color: color.textDim,
+  },
+  // The grid is absolutely placed under the header rather than laid out with
+  // it: menuOverlay centres its children, and a centred list would drift up and
+  // down as the row count changed.
+  styleGrid: {
+    position: 'absolute',
+    top: 70,
+    left: STYLE_PAD,
+    right: STYLE_PAD,
+    height: STYLE_LIST_H,
+  },
+  styleGridContent: {
+    paddingBottom: STYLE_GAP,
+  },
+  styleGridRow: {
+    gap: STYLE_GAP,
+    marginBottom: STYLE_GAP,
+  },
+  styleCard: STYLE_CARD,
+  // The focused tile lifts its own fill as well as taking Focusable's ring.
+  // In a grid of identical rectangles the ring alone is a thin outline that the
+  // eye loses on a glance; the fill is what carries at 10 feet.
+  //
+  // Spread from one const rather than composed as an array: Focusable takes a
+  // single ViewStyle and reads borderRadius off it to size the ring, so an
+  // array would both fail to typecheck and lose the rounded corners.
+  styleCardOn: {...STYLE_CARD, backgroundColor: 'rgba(255,255,255,0.14)'},
+  // Holds the per-style coloured glyph. Square, so 52 of them make a column of
+  // consistent landmarks down the left edge of each tile.
+  styleChip: {
+    width: 30,
+    height: 30,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: radius.sm,
+  },
+  styleName: {
+    ...type.label,
+    color: color.textSecondary,
+    flex: 1,
+  },
+  styleNameOn: {
+    ...type.label,
+    color: color.textPrimary,
+    flex: 1,
+  },
+  // Where the grid sits in the full list. 52 styles are 13 rows and six show at
+  // a time, so without this there is nothing on screen to say whether the list
+  // is two rows deep or twenty.
+  styleRail: {
+    position: 'absolute',
+    top: 70,
+    right: 18,
+    width: 3,
+    height: STYLE_LIST_H,
+    borderRadius: radius.pill,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+  },
+  styleRailThumb: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    borderRadius: radius.pill,
+  },
+  // What OK will actually do, for the focused style. The grid says which styles
+  // exist; it does not say that choosing one replaces what is playing, which is
+  // worth knowing BEFORE the press rather than after.
+  styleFooter: {
+    position: 'absolute',
+    left: STYLE_PAD,
+    right: STYLE_PAD,
+    bottom: 26,
+    ...type.caption,
+    color: color.textDim,
+  },
+  // The album count, dim and secondary. It is the difference between a station
+  // with 600 records behind it and one with 40, which the name alone hides.
+  styleCount: {
+    ...type.label,
+    fontWeight: '400',
+    color: color.textDim,
   },
   menuSearchLabel: {
     ...type.label,

@@ -24,6 +24,8 @@ Features
 
 - Deep Cuts — random tracks you've never played
 
+- Style Radio — pick one of your library's style tags and hear a station of it
+
 - Recently Added shuffle
 
 - Radio stations auto-refill, so they never run out
@@ -165,7 +167,7 @@ Control grid (D-pad moves within and between rows):
 | 1 | ⏮ Prev, ▶ Play / ⏸ Pause, Next ⏭ |
 | 2 | 🔉 volume down, 🔊 volume up (5% per press) |
 | 3 | 🎲 Feeling lucky?, ☰ Queue |
-| 4 | 📻 Library Radio, 🌊 Deep Cuts |
+| 4 | 📻 Library Radio, 🌊 Deep Cuts, Style Radio |
 | 5 | Recently Added, 💿 Album |
 | 6 | Browse, Settings, Screensaver |
 
@@ -254,12 +256,19 @@ It costs no extra Plex requests. The per-track lookup that already runs once per
 
 If the current track has no Plex id (line-in, a non-Plex stream, a queue pushed by another app), the status line says `No album for this track` rather than erroring.
 
-### Radio stations: Library Radio and Deep Cuts
+### Radio stations: Library Radio, Deep Cuts and Style Radio
 
-Two endless-feeling stations, built as plain Plex track queries rather than Sonic Analysis:
+Three endless-feeling stations, built as plain Plex track queries rather than Sonic Analysis:
 
 - **📻 Library Radio**: random tracks from anywhere in the library.
 - **🌊 Deep Cuts**: random tracks that have never been played (`viewCount=0`).
+- **Style Radio**: random tracks from albums carrying one style tag.
+
+Style Radio opens a picker first — a grid of your library's style tags, each with the number of albums behind it, each with a colour derived from its own name so the grid can be navigated by memory rather than read top to bottom.
+
+Only styles with at least `STYLE_MIN_ALBUMS` albums (default 40, in `src/config/display.ts`) are offered: a style carried by two albums makes a station that repeats immediately. Lower it for a longer menu. The style list and its counts are cached on disk behind the same library fingerprint as the album catalog, so the per-style count probes run once per retag rather than once per launch.
+
+Note that **style is an album tag, not a track one**. `type=10&style=<id>` returns an empty container rather than an error, so the track query reaches through the album with `album.style=<id>`.
 
 A station pushes 50 tracks, then **auto-refills**: when 10 or fewer tracks remain, the app appends another 50 to the same queue without interrupting playback. The active station is persisted to disk, so refilling survives an app restart or a redeploy.
 

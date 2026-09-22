@@ -732,7 +732,11 @@ interface CachedStyles {
 // How many count probes are in flight at once. The requests are tiny, but 262
 // at once is a good way to make a Plex server stop answering; a modest pool
 // keeps the whole sweep near a second on the LAN without hammering it.
-const STYLE_COUNT_CONCURRENCY = 8;
+//
+// 12 rather than 8 because this now runs at startup, where it is competing
+// with the catalog fetch and the first player poll for the Fire Stick's one JS
+// thread — finishing sooner is what keeps it out of the way.
+const STYLE_COUNT_CONCURRENCY = 12;
 
 let stylesPromise: Promise<PlexStyle[]> | null = null;
 
@@ -839,15 +843,42 @@ export async function getStyles(): Promise<PlexStyle[]> {
   return stylesPromise;
 }
 
+// Start loading the style list without waiting for it or caring if it fails.
+//
+// The picker is the ONLY thing that needs this list, and on a cold cache it is
+// a few hundred count probes — a visible pause the first time it is opened.
+// The app exits fully when backgrounded, so every launch is a cold start and
+// that pause would be paid on the first open of every session. Warming it at
+// startup moves the wait to a moment when nothing is waiting on it.
+//
+// Safe to call repeatedly: getStyles caches the in-flight promise, so extra
+// calls join the existing load rather than starting another.
+export function warmStyles(): void {
+  getStyles().catch(() => {});
+}
+
 async function loadStyles(): Promise<PlexStyle[]> {
+  // console.log reaches `adb logcat -s ReactNativeJS` from the RELEASE build
+  // (no console-stripping plugin in babel.config), which is the only way to
+  // tell a warm open from a cold one on the device — they look identical on
+  // screen apart from the pause this timing exists to measure.
+  const t0 = Date.now();
   const fingerprint = await currentFingerprint();
   const cached = await readCachedStyles();
   if (cached && (fingerprint === null || cached.fingerprint === fingerprint)) {
+    console.log(
+      `[styles] warm from disk: ${cached.styles.length} in ${
+        Date.now() - t0
+      }ms`,
+    );
     return cached.styles;
   }
   const list = await fetchStyleList();
   const counts = await mapPool(list, STYLE_COUNT_CONCURRENCY, s =>
     countStyleAlbums(s.key),
+  );
+  console.log(
+    `[styles] cold sweep: ${list.length} styles in ${Date.now() - t0}ms`,
   );
   const styles = sortStyles(
     list.map((s, i) => ({key: s.key, title: s.title, albums: counts[i]})),

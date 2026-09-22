@@ -10,6 +10,7 @@ import AlbumScreen from './screens/AlbumScreen';
 import SettingsScreen from './screens/SettingsScreen';
 import {loadPersistedDevice} from './store/deviceStore';
 import {loadPersistedStation} from './store/playerStore';
+import {warmStyles} from './api/plex';
 
 const Stack = createNativeStackNavigator();
 
@@ -23,9 +24,15 @@ export default function App() {
     // Restore the station flag alongside the device so a station that was
     // driving the queue before a restart keeps auto-refilling.
     loadPersistedStation().catch(() => {});
+    // Warm the Style Radio list in the background. Deferred rather than fired
+    // here: on a cold cache it is a few hundred small requests, and the first
+    // seconds of a launch already belong to hydrating the device, connecting to
+    // the WiiM and the first poll. Nothing waits on this, so it can wait.
+    const styleWarm = setTimeout(warmStyles, 4000);
     loadPersistedDevice()
       .then(dev => setHasDevice(!!dev))
       .finally(() => setBooted(true));
+    return () => clearTimeout(styleWarm);
   }, []);
 
   // Fully exit when the app leaves the foreground (Home pressed, another app

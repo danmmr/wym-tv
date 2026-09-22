@@ -124,6 +124,7 @@ import {
   getArtistAlbumCount,
   getAlbumStyles,
   getStyles,
+  warmStyles,
   stationStyles,
   styleStation,
 } from '../api/plex';
@@ -728,6 +729,11 @@ export default function NowPlayingScreen({navigation}: any) {
   };
 
   const openMenu = () => {
+    // Second chance to warm the style list: the startup warm may have been
+    // cancelled by a fast navigation or failed against a server that was not
+    // up yet. Opening this menu is the only route to the picker, so it is the
+    // last moment the load is still free.
+    warmStyles();
     menuPosRef.current = {row: 0, col: 0};
     setMenuPos({row: 0, col: 0});
     menuOpenRef.current = true;

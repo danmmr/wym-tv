@@ -234,6 +234,32 @@ describe('getStyles', () => {
   });
 });
 
+describe('warmStyles', () => {
+  it('loads the list without being awaited, and only once', async () => {
+    const {plex, get} = loadPlex(server());
+    plex.warmStyles();
+    plex.warmStyles();
+    plex.warmStyles();
+    // Whoever opens the picker joins the same load rather than starting another.
+    const styles = await plex.getStyles();
+    expect(styles).toHaveLength(STYLES.length);
+    const listCalls = get.mock.calls
+      .map(c => c[0] as string)
+      .filter(u => u.includes('/style?type=9'));
+    expect(listCalls).toHaveLength(1);
+  });
+
+  it('swallows a failure rather than raising an unhandled rejection', async () => {
+    const {plex} = loadPlex(() => {
+      throw new Error('ECONNREFUSED');
+    });
+    // The point of the warm is that nothing is waiting on it; an unhandled
+    // rejection here would surface as a redbox in a debug build.
+    expect(() => plex.warmStyles()).not.toThrow();
+    await expect(plex.getStyles()).rejects.toThrow();
+  });
+});
+
 describe('stationStyles', () => {
   const all = [
     {key: 'a', title: 'Big', albums: 600},

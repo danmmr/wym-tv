@@ -71,6 +71,12 @@ export interface QueuePosition {
 // The user-visible label is queueDisplayName() below.
 const QUEUE_NAME = 'WiiMTV';
 
+// The device's alias for whatever queue is currently loaded, whoever pushed it.
+// Addressing the live queue by OUR name is wrong whenever something else loaded
+// it — the WiiM Home app pushes its own ListName — so anything that only wants
+// to read the current position asks for this instead. BrowseQueue already does.
+export const CURRENT_QUEUE = 'CurrentQueue';
+
 // What to SHOW for a queue. Our own handle is an internal id, so display the
 // app's name for it; queues pushed by other apps keep whatever they call
 // themselves, which is the only clue about where they came from.

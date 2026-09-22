@@ -115,7 +115,7 @@ const COVER = Math.round(WIN_H * 0.44);
 import {useDeviceStore} from '../store/deviceStore';
 import {usePlayerStore} from '../store/playerStore';
 import type {PlayerState} from '../store/playerStore';
-import {WiiMClient} from '../api/wiim';
+import {WiiMClient, CURRENT_QUEUE} from '../api/wiim';
 import {
   getRandomAlbum,
   buildAlbumQueue,
@@ -132,6 +132,7 @@ import type {StationKind, PlexStyle} from '../api/plex';
 import {STYLE_MIN_ALBUMS} from '../config/display';
 import {decodeHex} from '../api/hex';
 import {whyThisLine} from './whyThis';
+import {mayBeNearEnd, shouldAppend} from './stationRefill';
 import {scrollTopFor} from './browseNav';
 import {styleChip, styleGlyph} from './styleColor';
 import {useAlbumArt} from '../hooks/useAlbumArt';
@@ -327,7 +328,7 @@ export default function NowPlayingScreen({navigation}: any) {
         bitDepth: md?.bitDepth || undefined,
         bitRate: md?.bitRate || undefined,
       });
-      maybeRefillStation(c, status);
+      maybeRefillStation(c, status).catch(() => {});
       maybeFetchTrackInfo(md?.trackId);
       return true;
     } catch (error) {
@@ -441,35 +442,49 @@ export default function NowPlayingScreen({navigation}: any) {
   };
 
   // When a station is driving the queue, keep it "endless" by appending another
-  // batch as the queue nears its end. plicurr is 1-based; plicount is the queue
-  // length. We only append once per drain (refillAtRef) and never overlap.
-  const maybeRefillStation = (c: WiiMClient, status: any) => {
+  // batch as the queue nears its end.
+  //
+  // getPlayerStatus's plicurr/plicount CANNOT decide this on their own: they go
+  // stale the moment the queue is edited, and an append is an edit. Measured on
+  // the Mini — after appending 50 to a 50-track station the device still
+  // reported plicount=50 while GetQueueIndex reported TrackNums=100. Deciding
+  // on the stale value meant the guard below saw `plicount === refillAtRef`
+  // from then on, so a station appended exactly ONCE and then quietly ran dry
+  // at 100 tracks.
+  //
+  // So the status fields are only a cheap gate, and the decision is made from
+  // GetQueueIndex, which is the sole honest source for queue position. Staleness
+  // cannot cause a miss here: a stale plicount is always the SMALLER, older
+  // number, so `remaining` only ever reads lower than the truth and the gate errs
+  // towards asking.
+  const maybeRefillStation = async (c: WiiMClient, status: any) => {
     const sk = usePlayerStore.getState().stationKind;
     if (!sk || refillingRef.current) {
       return;
     }
     const plicount = parseInt(status.plicount, 10) || 0;
     const plicurr = parseInt(status.plicurr, 10) || 0;
-    if (plicount <= 0) {
-      return;
+    if (!mayBeNearEnd(plicount, plicurr, REFILL_THRESHOLD)) {
+      return; // comfortably mid-queue; not worth a SOAP round trip
     }
-    const remaining = plicount - plicurr;
-    if (remaining > REFILL_THRESHOLD) {
-      return;
-    }
-    if (plicount === refillAtRef.current) {
-      return;
-    } // append not yet reflected
+    // Hold the lock across the position read too, or the 1.5s poll fires this
+    // again while the read is still in flight and two appends overlap.
     refillingRef.current = true;
-    refillAtRef.current = plicount;
-    buildStationQueue(sk, STATION_SIZE)
-      .then(q => (q.length ? c.appendQueue(q) : undefined))
-      .catch(() => {
-        refillAtRef.current = 0; // allow a retry on next drain
-      })
-      .finally(() => {
-        refillingRef.current = false;
-      });
+    try {
+      const pos = await c.getQueueIndex(CURRENT_QUEUE);
+      if (!shouldAppend(pos, refillAtRef.current, REFILL_THRESHOLD)) {
+        return;
+      }
+      refillAtRef.current = pos.total;
+      const q = await buildStationQueue(sk, STATION_SIZE);
+      if (q.length) {
+        await c.appendQueue(q);
+      }
+    } catch {
+      refillAtRef.current = 0; // allow a retry on the next drain
+    } finally {
+      refillingRef.current = false;
+    }
   };
 
   // Run a control command, show feedback, and refresh immediately.

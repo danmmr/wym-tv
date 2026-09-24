@@ -6,7 +6,6 @@ import {
   Dimensions,
   Animated,
   Easing,
-  NativeModules,
 } from 'react-native';
 import SaverHint from './SaverHint';
 import {usePlayerStore} from '../store/playerStore';
@@ -157,21 +156,8 @@ export default function ArtFrame() {
     };
   }, [animX, animY, animZ]);
 
-  // Keep the screen awake only while something is PLAYING (same rule as the
-  // screensaver). It rides in its own effect rather than with the drift loops
-  // because it depends on playback, not on the animation — folding it back in
-  // would restart the wander every time the music paused.
-  const playing = usePlayerStore(s => s.status === 'play');
-  useEffect(() => {
-    if (!playing) {
-      NativeModules.WakeControl?.keepAwake(false);
-      return;
-    }
-    NativeModules.WakeControl?.keepAwake(true);
-    return () => {
-      NativeModules.WakeControl?.keepAwake(false);
-    };
-  }, [playing]);
+  // The screen-awake hold lives in App.tsx (src/wakeHold.ts) now, app-wide.
+  // A hold here would clear the flag for everyone when the saver closed.
 
   // Crossfade on slide change: the outgoing cover is held in `fading` and
   // dissolved out underneath the incoming one, so slides never hard-cut.

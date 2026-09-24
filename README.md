@@ -221,7 +221,7 @@ The WiiM's current play queue, read back off the device.
 
 Opens automatically after **2 minutes** of no key presses on Now Playing, or on demand from the Screensaver footer button.
 
-Full-screen GPU shader visualizer, the album art floating over it, the current time, and the track title/artist. The shader palette follows the album art's accent hue, so the field stays in that album's colour family. The screen is kept awake while it is up.
+Full-screen GPU shader visualizer, the album art floating over it, the current time, and the track title/artist. The shader palette follows the album art's accent hue, so the field stays in that album's colour family. While music is playing the app keeps the TV awake on every screen, not only here, so Fire OS's own screensaver cannot push it into the background (the app exits when backgrounded). Pausing lets the TV sleep as usual.
 
 While the screensaver is showing:
 

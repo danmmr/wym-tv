@@ -9,8 +9,9 @@ import QueueScreen from './screens/QueueScreen';
 import AlbumScreen from './screens/AlbumScreen';
 import SettingsScreen from './screens/SettingsScreen';
 import {loadPersistedDevice} from './store/deviceStore';
-import {loadPersistedStation} from './store/playerStore';
+import {loadPersistedStation, usePlayerStore} from './store/playerStore';
 import {warmStyles} from './api/plex';
+import {startWakeHold} from './wakeHold';
 
 const Stack = createNativeStackNavigator();
 
@@ -34,6 +35,19 @@ export default function App() {
       .finally(() => setBooted(true));
     return () => clearTimeout(styleWarm);
   }, []);
+
+  // Keep the TV awake while music plays, on every screen. See wakeHold.ts for
+  // why this is app-wide and the only holder: without it, Fire OS's own
+  // screensaver backgrounds the app, and the effect below then exits it.
+  useEffect(
+    () =>
+      startWakeHold(
+        l => usePlayerStore.subscribe(s => l(s.status)),
+        usePlayerStore.getState().status,
+        on => NativeModules.WakeControl?.keepAwake(on),
+      ),
+    [],
+  );
 
   // Fully exit when the app leaves the foreground (Home pressed, another app
   // taken over) so it holds zero CPU/GPU/memory on the resource-tight Fire

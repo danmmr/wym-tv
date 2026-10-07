@@ -15,6 +15,9 @@ import {startWakeHold} from './wakeHold';
 
 const Stack = createNativeStackNavigator();
 
+// How long the app may sit in the background before it exits itself.
+const BACKGROUND_EXIT_DELAY_MS = 2 * 60 * 1000;
+
 export default function App() {
   // Hydrate the saved device before rendering the navigator so we can boot
   // straight into Now Playing when one is remembered (skip Discovery).
@@ -49,16 +52,20 @@ export default function App() {
     [],
   );
 
-  // Fully exit when the app leaves the foreground (Home pressed, another app
-  // taken over) so it holds zero CPU/GPU/memory on the resource-tight Fire
-  // Stick while not in use. Playback is unaffected — the WiiM plays its native
-  // PlayQueue straight from Plex, independent of this app; relaunch is a cold
-  // start back into Now Playing. Only 'background' triggers it, not the
-  // transient 'inactive' state (in-app dialogs keep the activity resumed).
+  // Fully exit once the app has been out of the foreground for a while (Home
+  // pressed, another app taken over) so it holds zero CPU/GPU/memory on the
+  // resource-tight Fire Stick while not in use. Playback is unaffected — the
+  // WiiM plays its native PlayQueue straight from Plex, independent of this
+  // app; relaunch is a cold start back into Now Playing. The exit is deferred
+  // so a passing overlay (Alexa's full-screen cards, ~30s) closes back onto
+  // WyM instead of killing it; returning to 'active' cancels it. Only
+  // 'background' arms it, not the transient 'inactive' state.
   useEffect(() => {
     const sub = AppState.addEventListener('change', state => {
       if (state === 'background') {
-        NativeModules.WakeControl?.exitApp();
+        NativeModules.WakeControl?.scheduleExit(BACKGROUND_EXIT_DELAY_MS);
+      } else if (state === 'active') {
+        NativeModules.WakeControl?.cancelExit();
       }
     });
     return () => sub.remove();

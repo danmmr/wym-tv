@@ -1,6 +1,8 @@
 package com.wymtv
 
 import android.content.Intent
+import android.os.Handler
+import android.os.Looper
 import android.view.WindowManager
 import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.bridge.ReactContextBaseJavaModule
@@ -49,5 +51,24 @@ class WakeControlModule(reactContext: ReactApplicationContext) :
       activity?.finishAndRemoveTask()
       Runtime.getRuntime().exit(0)
     }
+  }
+
+  // Deferred exitApp(). A transient full-screen overlay (Alexa's APL cards are a
+  // separate activity) backgrounds the app for ~30s; exiting at once means the card
+  // closes onto the Fire TV home screen instead of back onto WyM. The timer lives
+  // here, not in JS, because React Native pauses JS timers while the host is
+  // backgrounded. cancelExit() on return to the foreground disarms it.
+  private val exitHandler = Handler(Looper.getMainLooper())
+  private val exitRunnable = Runnable { exitApp() }
+
+  @ReactMethod
+  fun scheduleExit(delayMs: Double) {
+    exitHandler.removeCallbacks(exitRunnable)
+    exitHandler.postDelayed(exitRunnable, delayMs.toLong())
+  }
+
+  @ReactMethod
+  fun cancelExit() {
+    exitHandler.removeCallbacks(exitRunnable)
   }
 }

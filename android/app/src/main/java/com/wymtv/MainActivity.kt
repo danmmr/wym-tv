@@ -1,5 +1,6 @@
 package com.wymtv
 
+import android.os.Bundle
 import android.view.KeyEvent
 import com.facebook.react.ReactActivity
 import com.facebook.react.ReactActivityDelegate
@@ -20,6 +21,13 @@ class MainActivity : ReactActivity() {
     // Fire OS — and looked like a dead remote. Nothing ever sets it back to
     // false, so "off" only described the moments before JS was ready to listen.
     @Volatile var captureDpad = true
+  }
+
+  // Never hand saved state to super: react-native-screens throws "Screen fragments
+  // should never be restored" when Android rebuilds a killed activity from it, a
+  // crash on launch. The JS side rebuilds its own screens on every start anyway.
+  override fun onCreate(savedInstanceState: Bundle?) {
+    super.onCreate(null)
   }
 
   /**

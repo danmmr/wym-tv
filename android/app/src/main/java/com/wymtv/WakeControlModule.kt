@@ -4,13 +4,18 @@ import android.content.Intent
 import android.os.Handler
 import android.os.Looper
 import android.view.WindowManager
+import com.facebook.react.bridge.LifecycleEventListener
 import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.bridge.ReactContextBaseJavaModule
 import com.facebook.react.bridge.ReactMethod
 import com.facebook.react.bridge.UiThreadUtil
 
 class WakeControlModule(reactContext: ReactApplicationContext) :
-    ReactContextBaseJavaModule(reactContext) {
+    ReactContextBaseJavaModule(reactContext), LifecycleEventListener {
+
+  init {
+    reactContext.addLifecycleEventListener(this)
+  }
 
   override fun getName(): String = "WakeControl"
 
@@ -71,4 +76,17 @@ class WakeControlModule(reactContext: ReactApplicationContext) :
   fun cancelExit() {
     exitHandler.removeCallbacks(exitRunnable)
   }
+
+  // Disarm on every return to the foreground, natively. The JS AppState listener
+  // alone misses one path: Back on the root screen finishes the activity (which
+  // unmounts App and its listener) but leaves the process alive, so a relaunch
+  // inside the delay is already 'active' before the new listener subscribes and
+  // the pending exit kills the app two minutes after the user left.
+  override fun onHostResume() {
+    cancelExit()
+  }
+
+  override fun onHostPause() {}
+
+  override fun onHostDestroy() {}
 }

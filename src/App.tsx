@@ -61,6 +61,9 @@ export default function App() {
   // WyM instead of killing it; returning to 'active' cancels it. Only
   // 'background' arms it, not the transient 'inactive' state.
   useEffect(() => {
+    // A relaunch into a surviving process mounts already 'active', so no
+    // change event comes to cancel an exit armed before the remount.
+    NativeModules.WakeControl?.cancelExit();
     const sub = AppState.addEventListener('change', state => {
       if (state === 'background') {
         NativeModules.WakeControl?.scheduleExit(BACKGROUND_EXIT_DELAY_MS);

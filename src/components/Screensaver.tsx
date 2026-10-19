@@ -180,7 +180,14 @@ function paletteFor(accent: string): {
   };
 }
 
-const PLASMA_SRC = `
+// Topographic: a slowly deforming terrain drawn as glowing contour lines on
+// black, every fifth one heavier like the index lines on a survey map. The
+// terrain is flow's two-layer domain warp. SkSL has no derivatives, so line
+// width comes from a finite-difference gradient — the field is evaluated three
+// times per pixel, which keeps lines a constant ~1.3px wide whether contours
+// crowd together or spread out. Three cheap sin fields; no loops.
+// Replaced plasma, which was the 90s-demo version of what flow does better.
+const TOPO_SRC = `
 uniform float2 resolution;
 uniform float  time;
 uniform float  colorShift;
@@ -188,28 +195,51 @@ uniform float  density;
 uniform float  pulse;
 ${PALETTE_UNIFORMS}
 ${PALETTE_FN}
+float terrain(float2 p, float t, float amp) {
+  float2 q = p;
+  q.x += amp * sin(p.y * 0.9 + t);
+  q.y += amp * sin(p.x * 0.8 - t * 0.83);
+  float2 r = q;
+  r.x += (amp * 0.6) * sin(q.y * 1.4 - t * 1.13);
+  r.y += (amp * 0.6) * sin(q.x * 1.2 + t * 0.71);
+  float h = sin(r.x * 0.7 + t * 0.3) * cos(r.y * 0.6 - t * 0.21);
+  h += 0.5 * sin(length(r - float2(0.8, -0.4)) * 1.3 - t * 0.4);
+  return h;  // roughly -1.5..1.5
+}
+
 half4 main(float2 fragCoord) {
   float aspect = resolution.x / resolution.y;
-  float x = (fragCoord.x / resolution.x - 0.5) * aspect * 8.0;
-  float y = (fragCoord.y / resolution.y - 0.5) * 8.0;
+  float s = 3.2 / resolution.y;  // field units per pixel
+  float2 p = (fragCoord / resolution - 0.5) * float2(aspect, 1.0) * 3.2;
+  // Deliberately deaf to density and pulse. Both carry the title-hash beat,
+  // which resets abruptly every beat; in the warp amount it made the whole
+  // terrain jump, and thin lines show any discontinuity at once.
+  float t = time * 0.12;
+  const float amp = 0.6;
 
-  float d = density + pulse * 0.35;
+  const float LEVELS = 5.0;  // contour lines per unit of height
+  float v  = terrain(p, t, amp) * LEVELS;
+  float vx = terrain(p + float2(s, 0.0), t, amp) * LEVELS;
+  float vy = terrain(p + float2(0.0, s), t, amp) * LEVELS;
+  float grad = max(length(float2(vx - v, vy - v)), 0.0001);  // levels per px
 
-  float v  = sin(x * d          + time * 1.10);
-  v       += sin(y * d * 0.80   + time * 0.85);
-  v       += sin((x * 0.55 + y * 0.83) * d + time * 0.70);
-  v       += sin(sqrt(x * x + y * y + 0.001) * d * 1.05 - time * 0.50);
-  float n  = v * 0.25 + 0.5;
+  float f = fract(v);
+  float dpx = min(f, 1.0 - f) / grad;  // pixel distance to the nearest line
+  float idx = floor(v + 0.5);
+  float major = step(abs(idx - 5.0 * floor(idx / 5.0 + 0.5)), 0.5);
+  float w = mix(0.7, 1.4, major);
+  float line = 1.0 - smoothstep(w, w + 1.0, dpx);
 
-  float hue = fract(n * 1.5 + colorShift);
-  float3 col = palette(hue);
-
-  float bright = 0.85 + pulse * 0.15;
-  return half4(half3(col * bright + dither(fragCoord)), 1.0);
+  float height01 = clamp(v / (LEVELS * 3.0) + 0.5, 0.0, 1.0);
+  float3 ink = palette(fract(colorShift + height01 * 0.5));
+  // Faint hypsometric tint between the lines, so the bands read as elevation.
+  float3 col = float3(0.012, 0.012, 0.02) + palLo * (0.10 + 0.25 * height01);
+  col += (ink * 1.25 + palHi * 0.35 * major) * line * mix(0.55, 1.0, major);
+  return half4(min(col + dither(fragCoord), float3(1.0)), 1.0);
 }
 `;
 
-const PLASMA_EFFECT = Skia.RuntimeEffect.Make(PLASMA_SRC);
+const TOPO_EFFECT = Skia.RuntimeEffect.Make(TOPO_SRC);
 
 // Flow: domain-warped gradient. Smoothest visualizer - all motion is soft sine
 // warping with no hard edges or tight rings, so it never shimmers or snaps.
@@ -350,16 +380,17 @@ half4 main(float2 fragCoord) {
 
 const METABALL_EFFECT = Skia.RuntimeEffect.Make(METABALL_SRC);
 
-// Selectable background visualizers. Mapped to D-pad directions on the remote:
-// LEFT=plasma, RIGHT=flow, UP=starfield, DOWN=metaball (see NowPlayingScreen).
-export const VISUALIZERS = ['plasma', 'flow', 'starfield', 'metaball'] as const;
+// Selectable background visualizers. Left/right on the remote step through
+// these, then the art frame (SAVER_MODES in NowPlayingScreen). The first is the
+// one the saver opens on.
+export const VISUALIZERS = ['topo', 'flow', 'starfield', 'metaball'] as const;
 export type Visualizer = (typeof VISUALIZERS)[number];
 
 const EFFECT_BY_VISUALIZER: Record<
   Visualizer,
   ReturnType<typeof Skia.RuntimeEffect.Make>
 > = {
-  plasma: PLASMA_EFFECT,
+  topo: TOPO_EFFECT,
   flow: FLOW_EFFECT,
   starfield: STARFIELD_EFFECT,
   metaball: METABALL_EFFECT,
@@ -667,13 +698,17 @@ const VisualizerCanvas = React.memo(function VisualizerCanvas({
   // Uniforms recompute on the UI thread each gated tick so the field keeps moving.
   const uniforms = useDerivedValue(() => {
     const t = clock.value / 1000;
-    // Plasma and flow get layered incommensurate frequencies so speed feels
+    // Flow gets layered incommensurate frequencies so speed feels
     // randomly variable - sometimes surging, sometimes dragging - with no
     // discernible period. Four terms at 26s/14.6s/62s/9.4s cycles whose
     // derivative magnitudes sum to 0.91 so the field never actually reverses.
     // Starfield and metaball keep the original 40s sinusoidal breath.
     let warpTime: number;
-    if (visualizer === 'plasma' || visualizer === 'flow') {
+    if (visualizer === 'topo') {
+      // Constant rate. The surging below swings speed 0.1x-1.9x, which a soft
+      // field hides and a field of thin contour lines shows as lurching.
+      warpTime = t;
+    } else if (visualizer === 'flow') {
       warpTime =
         t -
         (4.0 / Math.PI) * Math.cos((t * Math.PI) / 13.0) +
@@ -691,7 +726,10 @@ const VisualizerCanvas = React.memo(function VisualizerCanvas({
     const beatPeriod = 60 / bpm;
     const beatPulse = Math.pow(1 - (t % beatPeriod) / beatPeriod, 2);
     const density = 0.7 + (volume / 100) * 0.6 + beatPulse * 0.2;
-    const colorShift = (trackProgress.value * 0.8 + t * 0.018) % 1;
+    // Topo leaves out trackProgress: it advances in a step per 1.5s poll, and
+    // the line colour visibly ticks with it.
+    const colorShift =
+      ((visualizer === 'topo' ? 0 : trackProgress.value * 0.8) + t * 0.018) % 1;
     return {
       resolution: [LOW_W, LOW_H],
       time: warpTime,
@@ -703,7 +741,7 @@ const VisualizerCanvas = React.memo(function VisualizerCanvas({
     };
   }, [bpm, volume, trackProgress, visualizer, palLo, palHi]);
 
-  const effect = EFFECT_BY_VISUALIZER[visualizer] ?? PLASMA_EFFECT;
+  const effect = EFFECT_BY_VISUALIZER[visualizer] ?? TOPO_EFFECT;
   if (!effect) {
     return null;
   }
@@ -783,7 +821,7 @@ function Screensaver({
   // itself, so this is never invoked. Kept on the props type as documentation
   // of the intended contract.
   onExit: _onExit,
-  visualizer = 'plasma',
+  visualizer = 'topo',
   showProgressRing = false,
 }: ScreensaverProps) {
   // Subscribe field by field, NOT `usePlayerStore()` bare. The bare call

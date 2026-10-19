@@ -227,10 +227,9 @@ While the screensaver is showing:
 
 | Key | Action |
 | --- | --- |
-| Left | Plasma |
-| Right | Flow |
-| Up | Starfield / warp tunnel |
-| Down | Metaball / lava lamp |
+| Left / Right | Step through the views: Topographic, Flow, Starfield / warp tunnel, Metaball / lava lamp, then the art frame |
+| Down | Return to Now Playing |
+| Up | Nothing, on purpose (it used to pick a view) |
 | ☰ Menu | Toggle the song-progress ring around the album art (off by default) |
 | OK, Back, anything else | Return to Now Playing |
 

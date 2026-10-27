@@ -58,7 +58,8 @@ export default function App() {
   // WiiM plays its native PlayQueue straight from Plex, independent of this
   // app; relaunch is a cold start back into Now Playing. The exit is deferred
   // so a passing overlay (Alexa's full-screen cards, ~30s) closes back onto
-  // WyM instead of killing it; returning to 'active' cancels it. Only
+  // WyM instead of killing it; returning to 'active' cancels it. Leaving for a
+  // launcher (Home, Recents) skips the delay; WakeControlModule checks. Only
   // 'background' arms it, not the transient 'inactive' state.
   useEffect(() => {
     // A relaunch into a surviving process mounts already 'active', so no

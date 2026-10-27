@@ -300,7 +300,9 @@ Nothing else persists. Clear both from Settings.
 
 ### Exit on background
 
-When the app leaves the foreground (Home pressed, another app takes over) it **fully exits**, so it holds zero CPU, GPU and memory on the resource-tight stick. Playback is unaffected, since the WiiM is playing its own queue straight from Plex. Relaunching is a cold start back into Now Playing.
+When the app leaves the foreground it **fully exits**, so it holds zero CPU, GPU and memory on the resource-tight stick. Playback is unaffected, since the WiiM is playing its own queue straight from Plex. Relaunching is a cold start back into Now Playing.
+
+How soon depends on what took over. Leaving for a launcher (Home, the Recents screen, or a replacement launcher such as Projectivy) exits at once. Anything else, such as an Alexa card or another app, gets **2 minutes** before the exit, so a passing overlay closes back onto WyM instead of onto the home screen. Telling the two apart needs usage access, which Fire OS has no settings screen for; `deploy.sh` grants it over adb (`appops set com.wymtv GET_USAGE_STATS allow`). Without it, every exit waits the 2 minutes.
 
 ### Cover art resolution
 

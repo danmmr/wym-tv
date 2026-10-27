@@ -1,8 +1,12 @@
 package com.wymtv
 
+import android.app.usage.UsageEvents
+import android.app.usage.UsageStatsManager
+import android.content.Context
 import android.content.Intent
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
 import android.view.WindowManager
 import com.facebook.react.bridge.LifecycleEventListener
 import com.facebook.react.bridge.ReactApplicationContext
@@ -66,15 +70,69 @@ class WakeControlModule(reactContext: ReactApplicationContext) :
   private val exitHandler = Handler(Looper.getMainLooper())
   private val exitRunnable = Runnable { exitApp() }
 
+  // The delay is only for overlays. When the user left for a launcher (Home, or
+  // the Recents screen) the app quits at once, so coming back is a cold start
+  // rather than a resume onto whatever screen was open. Android cannot tell the two
+  // apart for us: an Alexa card pauses the app with userLeaving=true exactly as Home
+  // does. So look at what is in front a moment after leaving instead. That needs
+  // usage access, which deploy.sh grants over adb; without it nothing is reported,
+  // and the app keeps the delayed exit, i.e. the old behaviour.
+  private val leaveCheckRunnable = Runnable {
+    val front = foregroundPackage()
+    Log.i(TAG, "left for ${front ?: "unknown"}")
+    if (front != null && front in launcherPackages()) exitApp()
+  }
+
+  // Every installed Home app, not just the default: a replacement launcher such as
+  // Projectivy takes the Home key while Amazon's stays the resolved default and
+  // still owns the Recents screen. Negative priority is skipped: Fire's Settings app
+  // registers a FallbackHome at -1000, and opening Settings is not leaving for Home.
+  // Needs the HOME <queries> entry in the manifest.
+  private fun launcherPackages(): Set<String> =
+      reactApplicationContext.packageManager
+          .queryIntentActivities(
+              Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME), 0)
+          .filter { it.priority >= 0 }
+          .map { it.activityInfo.packageName }
+          .toSet()
+
   @ReactMethod
   fun scheduleExit(delayMs: Double) {
-    exitHandler.removeCallbacks(exitRunnable)
+    cancelExit()
+    exitHandler.postDelayed(leaveCheckRunnable, LEAVE_CHECK_MS)
     exitHandler.postDelayed(exitRunnable, delayMs.toLong())
   }
 
   @ReactMethod
   fun cancelExit() {
+    exitHandler.removeCallbacks(leaveCheckRunnable)
     exitHandler.removeCallbacks(exitRunnable)
+  }
+
+  // The package that most recently came to the foreground, or null when usage
+  // access is not granted (queryEvents then returns nothing).
+  private fun foregroundPackage(): String? =
+      try {
+        val usm =
+            reactApplicationContext.getSystemService(Context.USAGE_STATS_SERVICE)
+                as UsageStatsManager
+        val now = System.currentTimeMillis()
+        val events = usm.queryEvents(now - 10_000, now)
+        val event = UsageEvents.Event()
+        var pkg: String? = null
+        while (events.hasNextEvent()) {
+          events.getNextEvent(event)
+          if (event.eventType == UsageEvents.Event.ACTIVITY_RESUMED) pkg = event.packageName
+        }
+        pkg
+      } catch (e: Exception) {
+        null
+      }
+
+  companion object {
+    private const val TAG = "WakeControl"
+    // The launcher resumes within ~30ms of the app pausing; a second is ample.
+    private const val LEAVE_CHECK_MS = 1000L
   }
 
   // Disarm on every return to the foreground, natively. The JS AppState listener

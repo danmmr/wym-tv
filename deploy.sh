@@ -380,6 +380,10 @@ for IP in "${TARGETS[@]}"; do
 
   echo "    installing..."
   adb -s "$DEV" install -r "$APK" >/dev/null
+  # Usage access lets the app quit at once when Home/Recents takes over (see
+  # WakeControlModule). Fire OS has no settings screen for it, so grant it here;
+  # it survives upgrades but not an uninstall.
+  adb -s "$DEV" shell appops set "$APP_ID" GET_USAGE_STATS allow
 
   # REQUIRED: after `install -r`, `am start` often just resumes the already
   # running OLD process instead of loading the new bundle, so the screen looks

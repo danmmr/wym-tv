@@ -1,8 +1,22 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <!-- Usage access, granted by deploy.sh over adb (Fire OS has no UI for it):
+         lets the app see that Home/Recents took over and quit at once. -->
+    <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS"
+        tools:ignore="ProtectedPermissions" />
+
+    <!-- Android 11 package visibility: lets WakeControlModule list Home apps. -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.HOME" />
+        </intent>
+    </queries>
+
 
     <!-- Fire TV / Android TV: app runs without touchscreen, uses leanback -->
     <uses-feature android:name="android.software.leanback" android:required="false" />

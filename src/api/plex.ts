@@ -802,6 +802,13 @@ export async function getTrackInfo(idOrPath: string): Promise<PlexTrackInfo> {
   };
 }
 
+// Where a track's file lives on the server, for the failure list. Asked for only
+// when a track fails, since nothing else needs it. '' when Plex doesn't say.
+export async function getTrackFile(trackId: string): Promise<string> {
+  const mc = await plexGet(trackId);
+  return str(mc.Metadata?.[0]?.Media?.[0]?.Part?.[0]?.file);
+}
+
 // How many albums the library holds by one artist, for the same line. One
 // Container-Size=0 request (~500 bytes: Plex answers with the count and no
 // rows) the first time an artist comes up, then remembered for the session —
@@ -829,6 +836,43 @@ export async function getArtistAlbumCount(artistKey: string): Promise<number> {
   const n = Number(mc.totalSize ?? mc.size) || 0;
   artistAlbumCountCache.set(artistKey, n);
   return n;
+}
+
+// The count for the line on the current track. On a compilation the album
+// artist is "Various", so its count says nothing about who is playing, and the
+// credit has to be turned into an artist first. Plex's title filter is a loose
+// match ("Air" also finds "Air Liquide"), so rows are re-checked for the exact
+// name. Namesakes take the larger count, as the Artist button does. 0 for a
+// credited artist with no album of their own, and the line omits it.
+const creditedArtistKeysCache = new Map<string, string[]>();
+
+export async function getTrackArtistAlbumCount(track: {
+  artistKey: string;
+  albumArtist: string;
+  artist: string;
+}): Promise<number> {
+  if (!VARIOUS_RE.test(track.albumArtist)) {
+    return getArtistAlbumCount(track.artistKey);
+  }
+  const name = track.artist;
+  if (!name || VARIOUS_RE.test(name)) {
+    return 0;
+  }
+  const wanted = fold(name);
+  let keys = creditedArtistKeysCache.get(wanted);
+  if (!keys) {
+    const mc = await plexGet(
+      `/library/sections/${PLEX.musicSection}/all?type=8` +
+        `&title=${encodeURIComponent(name)}` +
+        '&X-Plex-Container-Start=0&X-Plex-Container-Size=100',
+    );
+    keys = ((mc.Metadata || []) as any[])
+      .filter(a => fold(str(a.title)) === wanted)
+      .map(a => str(a.ratingKey));
+    creditedArtistKeysCache.set(wanted, keys);
+  }
+  const counts = await Promise.all(keys.map(getArtistAlbumCount));
+  return Math.max(0, ...counts);
 }
 
 // The album's styles (Plex's sub-genre tags: "Post-Punk", "Synth Pop"), for the

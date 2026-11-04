@@ -3,6 +3,7 @@ import {useDeviceStore} from '../store/deviceStore';
 import {usePlayerStore} from '../store/playerStore';
 import {WiiMClient} from '../api/wiim';
 import {CoverArtResolver} from '../api/coverart';
+import {resolveTrackArt, usableArtUri} from './resolveTrackArt';
 
 export const useAlbumArt = () => {
   const resolverRef = useRef(new CoverArtResolver());
@@ -12,45 +13,26 @@ export const useAlbumArt = () => {
   useEffect(() => {
     let cancelled = false;
 
-    const resolve = async () => {
-      if (!title || title === 'Unknown') {
-        return;
-      }
+    if (!title || title === 'Unknown') {
+      return;
+    }
 
+    resolveTrackArt(
       // 1) Ask the device directly — getMetaInfo returns albumArtURI for the
       //    current track (works great for local/Plex libraries).
-      if (selectedDevice) {
-        try {
-          const client = new WiiMClient(selectedDevice.ip);
-          const meta = await client.getMetaInfo();
-          const uri = meta?.metaData?.albumArtURI;
-          if (uri && typeof uri === 'string' && uri.startsWith('http')) {
-            if (!cancelled) {
-              setAlbumArt(uri);
-            }
-            return;
-          }
-        } catch (e) {
-          // fall through to MusicBrainz
+      async () => {
+        if (!selectedDevice) {
+          return undefined;
         }
-      }
-
+        const meta = await new WiiMClient(selectedDevice.ip).getMetaInfo();
+        return usableArtUri(meta?.metaData?.albumArtURI);
+      },
       // 2) Fallback: MusicBrainz Cover Art Archive by artist/title.
-      try {
-        const artUrl = await resolverRef.current.resolveCoverArt(
-          artist,
-          title,
-          album,
-        );
-        if (artUrl && !cancelled) {
-          setAlbumArt(artUrl);
-        }
-      } catch (e) {
-        // leave placeholder
-      }
-    };
+      () => resolverRef.current.resolveCoverArt(artist, title, album),
+      setAlbumArt,
+      () => cancelled,
+    );
 
-    resolve();
     return () => {
       cancelled = true;
     };

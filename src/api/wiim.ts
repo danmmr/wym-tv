@@ -1,5 +1,6 @@
 import axios, {AxiosInstance} from 'axios';
 import {decodeHex} from './hex';
+import {noteAppCommand} from '../playback/failureWatch';
 
 export interface WiiMPlayerStatus {
   type: string;
@@ -40,6 +41,8 @@ export interface QueueItem {
   index: number; // 1-based position in the queue
   title: string;
   artist: string;
+  album: string;
+  trackId: string; // '' when the queue's owner did not supply one
 }
 
 export interface QueueInfo {
@@ -211,14 +214,17 @@ export class WiiMClient {
   }
 
   async stop(): Promise<void> {
+    noteAppCommand();
     await this.command('setPlayerCmd:stop');
   }
 
   async next(): Promise<void> {
+    noteAppCommand();
     await this.command('setPlayerCmd:next');
   }
 
   async prev(): Promise<void> {
+    noteAppCommand();
     await this.command('setPlayerCmd:prev');
   }
 
@@ -240,10 +246,12 @@ export class WiiMClient {
   }
 
   async loadPreset(presetId: number): Promise<void> {
+    noteAppCommand();
     await this.command(`setPlayerCmd:preset:${presetId}`);
   }
 
   async switchInput(input: string): Promise<void> {
+    noteAppCommand();
     await this.command(`setPlayerCmd:switchmode:${input}`);
   }
 
@@ -295,10 +303,14 @@ export class WiiMClient {
       const didl = decodeEntities(m[1]);
       const t = /<dc:title>([\s\S]*?)<\/dc:title>/.exec(didl);
       const a = /<upnp:artist>([\s\S]*?)<\/upnp:artist>/.exec(didl);
+      const al = /<upnp:album>([\s\S]*?)<\/upnp:album>/.exec(didl);
+      const id = /<song:id>([\s\S]*?)<\/song:id>/.exec(didl);
       items.push({
         index: i,
         title: t ? decodeEntities(t[1]) : `Track ${i}`,
         artist: a ? decodeEntities(a[1]) : '',
+        album: al ? decodeEntities(al[1]) : '',
+        trackId: id ? decodeEntities(id[1]).trim() : '',
       });
     }
     return {listName, items};
@@ -306,6 +318,7 @@ export class WiiMClient {
 
   // Jump to a 1-based position in an existing named queue.
   async playIndex(listName: string, index: number): Promise<void> {
+    noteAppCommand(index);
     await this.playQueueSoap(
       'PlayQueueWithIndex',
       `<QueueName>${xText(listName)}</QueueName><Index>${index}</Index>`,
@@ -414,6 +427,7 @@ export class WiiMClient {
     if (!tracks.length) {
       return;
     }
+    noteAppCommand(startIndex + 1);
     const ctx = buildQueueContext(QUEUE_NAME, tracks);
     await this.playQueueSoap(
       'CreateQueue',

@@ -79,7 +79,7 @@ export interface PlayerState {
 
 interface PlayerStore extends PlayerState {
   setPlayerState: (state: Partial<PlayerState>) => void;
-  setAlbumArt: (url: string) => void;
+  setAlbumArt: (url: string | undefined) => void;
   clearCache: () => void;
 }
 

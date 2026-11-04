@@ -255,6 +255,15 @@ It costs no extra Plex requests. The per-track lookup that already runs once per
 
 If the current track has no Plex id (line-in, a non-Plex stream, a queue pushed by another app), the status line says `No album for this track` rather than erroring.
 
+### Playback failures
+
+Settings > **Playback Failures** lists tracks the WiiM could not play, with where each file lives, so a damaged file gets noticed rather than quietly skipped. The WiiM never reports a failure, so the app infers one from what it does next: a track that never starts shows as `Wouldn't load`, and one that ends well short of its length shows as `Stopped at 0:05 of 1:33`.
+
+- Only recorded while the app is open, since the detection runs off Now Playing's poll.
+- Skips made in this app are ignored. A skip from the WiiM Home app or a remote looks identical to a truncated file and shows as `Stopped`, so treat those as worth checking rather than proven bad. `Wouldn't load` is the firmer signal, though not proof.
+- A corrupt file alone in a queue can go unrecorded: with nothing after it, the player may stop between polls, which looks like a harmless stop. A short jump through the queue from another app can show the tracks passed as `Wouldn't load`.
+- OK writes the list to logcat (`adb logcat -s ReactNativeJS`), and ☰ clears it after asking. Clearing never touches the files.
+
 ### Artist button
 
 Sits beside Album on the actions menu and opens the **current track's artist** on a grid of everything by them, so seeing what else they have takes no searching: their own albums first, then the compilations they appear on, each group oldest first. OK plays an album, ☰ opens its track list, and BACK returns to Now Playing.

@@ -117,12 +117,13 @@ import {useDeviceStore} from '../store/deviceStore';
 import {usePlayerStore} from '../store/playerStore';
 import type {PlayerState} from '../store/playerStore';
 import {WiiMClient, CURRENT_QUEUE} from '../api/wiim';
+import {feedFailureWatch} from '../playback/feedFailureWatch';
 import {
   getRandomAlbum,
   buildAlbumQueue,
   buildStationQueue,
   getTrackInfo,
-  getArtistAlbumCount,
+  getTrackArtistAlbumCount,
   findArtistReleases,
   getAlbumStyles,
   getStyles,
@@ -138,6 +139,7 @@ import {mayBeNearEnd, shouldAppend} from './stationRefill';
 import {scrollTopFor} from './browseNav';
 import {styleChip, styleGlyph} from './styleColor';
 import {useAlbumArt} from '../hooks/useAlbumArt';
+import {coverLayers} from '../hooks/resolveTrackArt';
 import {
   useAccentColor,
   DEFAULT_ACCENT,
@@ -331,6 +333,7 @@ export default function NowPlayingScreen({navigation}: any) {
         bitRate: md?.bitRate || undefined,
       });
       maybeRefillStation(c, status).catch(() => {});
+      feedFailureWatch(c, status, md);
       maybeFetchTrackInfo(md?.trackId);
       return true;
     } catch (error) {
@@ -422,15 +425,13 @@ export default function NowPlayingScreen({navigation}: any) {
             context: {...cur, ...patch},
           });
         };
-        if (info.artistKey) {
-          getArtistAlbumCount(info.artistKey)
-            .then(n => {
-              if (n > 0) {
-                patchContext({artistAlbums: n});
-              }
-            })
-            .catch(() => {});
-        }
+        getTrackArtistAlbumCount(info)
+          .then(n => {
+            if (n > 0) {
+              patchContext({artistAlbums: n});
+            }
+          })
+          .catch(() => {});
         if (info.albumKey) {
           getAlbumStyles(info.albumKey)
             .then(styles => {
@@ -1483,6 +1484,7 @@ function AlbumCover({uri, accent}: {uri?: string; accent: string}) {
   // effect, so the effect does not have to depend on the state it sets.
   const shownRef = useRef(uri);
   const opacity = useSharedValue(1);
+  const [failed, setFailed] = useState<string | undefined>();
 
   useEffect(() => {
     if (shownRef.current === uri) {
@@ -1496,10 +1498,13 @@ function AlbumCover({uri, accent}: {uri?: string; accent: string}) {
     // is free to call it more than once per commit.
     opacity.value = 0;
     opacity.value = withTiming(1, {duration: motion.crossFade});
+    setFailed(undefined);
     setLayers({prev: outgoing, next: uri});
   }, [uri, opacity]);
 
   const topStyle = useAnimatedStyle(() => ({opacity: opacity.value}));
+
+  const {under, top} = coverLayers(layers.prev, layers.next, failed);
 
   const empty = (
     <View style={[styles.cover, styles.coverEmpty, {borderColor: accent}]}>
@@ -1509,16 +1514,17 @@ function AlbumCover({uri, accent}: {uri?: string; accent: string}) {
 
   return (
     <View style={styles.coverStack}>
-      {layers.prev ? (
+      {under ? (
         <Image
-          source={{uri: layers.prev}}
+          source={{uri: under}}
           style={[styles.cover, styles.coverUnder, {borderColor: accent}]}
           resizeMode="cover"
         />
       ) : null}
-      {layers.next ? (
+      {top ? (
         <Animated.Image
-          source={{uri: layers.next}}
+          source={{uri: top}}
+          onError={() => setFailed(top)}
           style={[styles.cover, {borderColor: accent}, topStyle]}
           resizeMode="cover"
         />

@@ -13,9 +13,10 @@ import {captureDpad, subscribeNav} from '../nav/dpad';
 import {useFocusEffect} from '@react-navigation/native';
 import {useDeviceStore} from '../store/deviceStore';
 import {usePlayerStore} from '../store/playerStore';
+import {getFailures} from '../playback/failureLog';
 
 // Vertical focus order for the JS D-pad cursor.
-const ITEMS = ['device', 'clear', 'restart', 'back'] as const;
+const ITEMS = ['device', 'clear', 'restart', 'failures', 'back'] as const;
 type Item = (typeof ITEMS)[number];
 
 export default function SettingsScreen({navigation}: any) {
@@ -23,6 +24,8 @@ export default function SettingsScreen({navigation}: any) {
   const playerStore = usePlayerStore();
   const [focusIdx, setFocusIdx] = useState(0);
   const focusIdxRef = useRef(0);
+
+  const [failureCount, setFailureCount] = useState(0);
 
   const setFocus = (idx: number) => {
     focusIdxRef.current = idx;
@@ -53,6 +56,8 @@ export default function SettingsScreen({navigation}: any) {
       handleClearCache();
     } else if (item === 'restart') {
       handleRestart();
+    } else if (item === 'failures') {
+      navigation.navigate('Failures');
     } else {
       navigation.navigate('NowPlaying');
     }
@@ -68,11 +73,14 @@ export default function SettingsScreen({navigation}: any) {
   useFocusEffect(
     useCallback(() => {
       captureDpad();
+      getFailures().then(list => setFailureCount(list.length));
       const sub = subscribeNav((k: string) => {
         const idx = focusIdxRef.current;
-        if (k === 'up') {
+        // The three App buttons share a row, so left and right walk the same
+        // single order as up and down rather than a second focus model.
+        if (k === 'up' || k === 'left') {
           setFocus(Math.max(0, idx - 1));
-        } else if (k === 'down') {
+        } else if (k === 'down' || k === 'right') {
           setFocus(Math.min(ITEMS.length - 1, idx + 1));
         } else if (k === 'select') {
           activate(ITEMS[idx]);
@@ -111,26 +119,37 @@ export default function SettingsScreen({navigation}: any) {
       </View>
 
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Cache</Text>
-        <Pressable
-          focusable={false}
-          style={[styles.button, focusedItem === 'clear' && styles.focused]}
-          onPress={handleClearCache}>
-          <Text style={styles.buttonText}>Clear Cache</Text>
-        </Pressable>
-      </View>
-
-      <View style={styles.section}>
         <Text style={styles.sectionTitle}>App</Text>
-        <Pressable
-          focusable={false}
-          style={[styles.button, focusedItem === 'restart' && styles.focused]}
-          onPress={handleRestart}>
-          <Text style={styles.buttonText}>Restart App</Text>
-        </Pressable>
+        <View style={styles.buttonRow}>
+          <Pressable
+            focusable={false}
+            style={[styles.button, focusedItem === 'clear' && styles.focused]}
+            onPress={handleClearCache}>
+            <Text style={styles.buttonText}>Clear Cache</Text>
+          </Pressable>
+          <Pressable
+            focusable={false}
+            style={[styles.button, focusedItem === 'restart' && styles.focused]}
+            onPress={handleRestart}>
+            <Text style={styles.buttonText}>Restart App</Text>
+          </Pressable>
+          <Pressable
+            focusable={false}
+            style={[
+              styles.button,
+              styles.buttonPlain,
+              focusedItem === 'failures' && styles.focused,
+            ]}
+            onPress={() => navigation.navigate('Failures')}>
+            <Text style={styles.buttonText}>
+              Playback Failures
+              {failureCount ? ` (${failureCount})` : ''}
+            </Text>
+          </Pressable>
+        </View>
         <Text style={styles.aboutText}>
-          Fully kills and relaunches the app, same as force-stopping it in Fire
-          TV settings.
+          Restart fully kills and relaunches the app. Failures lists tracks the
+          WiiM could not play.
         </Text>
       </View>
 
@@ -168,9 +187,9 @@ const styles = StyleSheet.create({
     // Overscan-safe bottom inset.
     paddingBottom: 28,
   },
-  // Four sections have to fit a 540dp window with no scrolling, so the spacing
-  // here is a budget, not taste: the Device section that made it four is what
-  // pushed About and the Back line off the bottom at the old 30/15.
+  // Three sections have to fit a 540dp window with no scrolling, so the spacing
+  // here is a budget, not taste: a fourth section once pushed About and the Back
+  // line off the bottom at the old 30/15.
   title: {
     fontSize: 32,
     fontWeight: 'bold',
@@ -197,6 +216,15 @@ const styles = StyleSheet.create({
     alignSelf: 'flex-start',
     minWidth: 220,
     alignItems: 'center',
+  },
+  // Two sections' worth of buttons on one line: the fifth section this would
+  // otherwise have been does not fit the 540dp window.
+  buttonRow: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  buttonPlain: {
+    backgroundColor: '#333',
   },
   focused: {
     borderColor: '#fff',

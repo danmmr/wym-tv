@@ -8,6 +8,7 @@ import BrowseScreen from './screens/BrowseScreen';
 import QueueScreen from './screens/QueueScreen';
 import AlbumScreen from './screens/AlbumScreen';
 import SettingsScreen from './screens/SettingsScreen';
+import FailuresScreen from './screens/FailuresScreen';
 import {loadPersistedDevice} from './store/deviceStore';
 import {loadPersistedStation, usePlayerStore} from './store/playerStore';
 import {warmStyles} from './api/plex';
@@ -116,6 +117,11 @@ export default function App() {
           name="Settings"
           component={SettingsScreen}
           options={{title: 'Settings'}}
+        />
+        <Stack.Screen
+          name="Failures"
+          component={FailuresScreen}
+          options={{title: 'Playback Failures'}}
         />
       </Stack.Navigator>
     </NavigationContainer>

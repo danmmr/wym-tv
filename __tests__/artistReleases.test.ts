@@ -112,7 +112,11 @@ describe('findOwnReleases', () => {
 });
 
 describe('appearancesFromTracks', () => {
-  const row = (parentRatingKey: string, originalTitle: string, year = 2011) => ({
+  const row = (
+    parentRatingKey: string,
+    originalTitle: string,
+    year = 2011,
+  ) => ({
     parentRatingKey,
     originalTitle,
     parentTitle: `Comp ${parentRatingKey}`,

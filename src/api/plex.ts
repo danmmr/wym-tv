@@ -470,13 +470,20 @@ export function getAlbumsByArtist(key: string): PlexAlbum[] {
   if (!albumCache) {
     return [];
   }
-  return albumCache
+  return albumsForKey(albumCache, key);
+}
+
+function oldestFirst(x: PlexAlbum, y: PlexAlbum): number {
+  return (
+    (x.year || '').localeCompare(y.year || '') ||
+    x.title.localeCompare(y.title, undefined, {sensitivity: 'base'})
+  );
+}
+
+function albumsForKey(catalog: PlexAlbum[], key: string): PlexAlbum[] {
+  return catalog
     .filter(a => (a.artistKey || a.artist) === key)
-    .sort(
-      (x, y) =>
-        (x.year || '').localeCompare(y.year || '') ||
-        x.title.localeCompare(y.title, undefined, {sensitivity: 'base'}),
-    );
+    .sort(oldestFirst);
 }
 
 // --- track artist -----------------------------------------------------------
@@ -496,6 +503,149 @@ export function trackArtist(t: any): string {
     return str(t.originalTitle) || albumArtist;
   }
   return albumArtist;
+}
+
+// --- the current track's artist ---------------------------------------------
+// What Now Playing's "Artist" button opens. The album artist's id is the right
+// answer on a normal album, but on a compilation that id is "Various Artists"
+// and the person wanted is the per-track credit, which Plex only holds as text.
+export interface ArtistLookup {
+  artistKey: string; // the ALBUM artist's id; '' when Plex doesn't say
+  albumArtist: string;
+  trackArtist: string;
+}
+
+export interface ArtistReleases {
+  artist: PlexArtist;
+  albums: PlexAlbum[];
+}
+
+function toReleases(name: string, albums: PlexAlbum[]): ArtistReleases {
+  return {
+    artist: {
+      key: albums[0].artistKey || name,
+      name,
+      count: albums.length,
+      thumb: albums[0].thumb,
+    },
+    albums,
+  };
+}
+
+// The artist's own albums, from the catalog alone. Null means the catalog has
+// none and the caller should look for compilation appearances instead.
+//
+// Names are not unique: this library holds two different artists called Air,
+// Gas, It and Cybotron. Only a credit forces a name match at all, and it takes
+// whichever namesake has the most albums, since a credit cannot say which it
+// meant. A normal album never reaches that, because it goes by id.
+export function findOwnReleases(
+  catalog: PlexAlbum[],
+  {artistKey, albumArtist, trackArtist: credit}: ArtistLookup,
+): ArtistReleases | null {
+  if (artistKey && !VARIOUS_RE.test(albumArtist)) {
+    const byId = albumsForKey(catalog, artistKey);
+    if (byId.length) {
+      return toReleases(byId[0].artist, byId);
+    }
+  }
+  if (!credit || VARIOUS_RE.test(credit)) {
+    return null;
+  }
+  const wanted = fold(credit);
+  const counts = new Map<string, number>();
+  for (const a of catalog) {
+    if (fold(a.artist) === wanted) {
+      const key = a.artistKey || a.artist;
+      counts.set(key, (counts.get(key) || 0) + 1);
+    }
+  }
+  let best = '';
+  let bestCount = 0;
+  counts.forEach((n, key) => {
+    if (n > bestCount) {
+      best = key;
+      bestCount = n;
+    }
+  });
+  if (!best) {
+    return null;
+  }
+  const albums = albumsForKey(catalog, best);
+  return toReleases(albums[0].artist, albums);
+}
+
+// The albums holding a track credited to `name`, from Plex's track rows. Plex's
+// originalTitle filter is a loose match, so "Air" also brings back "Air Supply"
+// and each row has to be checked for the exact credit.
+export function appearancesFromTracks(rows: any[], name: string): PlexAlbum[] {
+  const wanted = fold(name);
+  const byAlbum = new Map<string, PlexAlbum>();
+  for (const t of rows) {
+    const key = str(t.parentRatingKey);
+    if (key && !byAlbum.has(key) && fold(str(t.originalTitle)) === wanted) {
+      byAlbum.set(key, {
+        ratingKey: key,
+        title: str(t.parentTitle),
+        artist: str(t.grandparentTitle),
+        artistKey: str(t.grandparentRatingKey),
+        thumb: str(t.parentThumb),
+        year: str(t.parentYear),
+      });
+    }
+  }
+  return Array.from(byAlbum.values()).sort(oldestFirst);
+}
+
+// The artist's albums first, then the compilations they appear on. An album can
+// be in both when a track on the artist's own record carries a credit, and it
+// stays with the albums.
+export function mergeReleases(
+  own: ArtistReleases | null,
+  appearances: PlexAlbum[],
+  name: string,
+): ArtistReleases | null {
+  const ownAlbums = own ? own.albums : [];
+  const ownKeys = new Set(ownAlbums.map(a => a.ratingKey));
+  const albums = ownAlbums.concat(
+    appearances.filter(a => !ownKeys.has(a.ratingKey)),
+  );
+  return albums.length
+    ? toReleases(own ? own.artist.name : name, albums)
+    : null;
+}
+
+// Null only when the artist has neither, or the track names no artist at all.
+//
+// A failed appearances request still shows the artist's albums: they came from
+// the catalog and are the bulk of the answer. With no albums to fall back on,
+// the error reaches the caller, since "nothing by this artist" would be untrue.
+export async function findArtistReleases(
+  lookup: ArtistLookup,
+): Promise<ArtistReleases | null> {
+  const catalog = await loadAllAlbums();
+  const own = findOwnReleases(catalog, lookup);
+  const name = own ? own.artist.name : lookup.trackArtist;
+  if (!name || VARIOUS_RE.test(name)) {
+    return own;
+  }
+  try {
+    const mc = await plexGet(
+      `/library/sections/${PLEX.musicSection}/all?type=10` +
+        `&originalTitle=${encodeURIComponent(name)}` +
+        '&X-Plex-Container-Start=0&X-Plex-Container-Size=1000',
+    );
+    return mergeReleases(
+      own,
+      appearancesFromTracks(mc.Metadata || [], name),
+      name,
+    );
+  } catch (e) {
+    if (own) {
+      return own;
+    }
+    throw e;
+  }
 }
 
 // --- album tracks (for building the WiiM play queue) ------------------------

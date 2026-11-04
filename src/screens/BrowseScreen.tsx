@@ -470,9 +470,18 @@ export default function BrowseScreen({navigation, route}: any) {
   // Artists tab state: a shuffled grid of all artists (allArtists) that drills
   // into one artist's releases (artistAlbums) on select.
   const [allArtists, setAllArtists] = useState<PlexArtist[]>([]);
-  const [artistView, setArtistView] = useState<'grid' | 'albums'>('grid');
-  const [artistAlbums, setArtistAlbums] = useState<PlexAlbum[]>([]);
-  const [selectedArtist, setSelectedArtist] = useState<PlexArtist | null>(null);
+  // Now Playing's Artist button opens directly on one artist's releases, already
+  // resolved. The compilations-only case isn't derivable from the catalog, so
+  // the list comes along rather than being looked up again here.
+  const linkedArtist: PlexArtist | null = route?.params?.artist || null;
+  const linkedAlbums: PlexAlbum[] = route?.params?.artistAlbums || [];
+  const [artistView, setArtistView] = useState<'grid' | 'albums'>(
+    linkedArtist ? 'albums' : 'grid',
+  );
+  const [artistAlbums, setArtistAlbums] = useState<PlexAlbum[]>(linkedAlbums);
+  const [selectedArtist, setSelectedArtist] = useState<PlexArtist | null>(
+    linkedArtist,
+  );
   const [kbPos, setKbPos] = useState({row: 0, col: 0});
 
   // Album search state (the Search tab — title/artist substring over the cached
@@ -516,7 +525,9 @@ export default function BrowseScreen({navigation, route}: any) {
   const playlistListRef = useRef<FlatList<PlexPlaylist>>(null);
   const presetsRef = useRef<any[]>([]);
   const inputsRef = useRef<any[]>([]);
-  const artistViewRef = useRef<'grid' | 'albums'>('grid');
+  const artistViewRef = useRef<'grid' | 'albums'>(
+    linkedArtist ? 'albums' : 'grid',
+  );
   const collectionsRef = useRef<PlexCollection[]>([]);
   const collectionViewRef = useRef<'grid' | 'albums'>('grid');
   const collectionAlbumsRef = useRef<PlexAlbum[]>([]);
@@ -524,7 +535,7 @@ export default function BrowseScreen({navigation, route}: any) {
   const kbPosRef = useRef({row: 0, col: 0});
   const allArtistsRef = useRef<PlexArtist[]>([]);
   const rosterIdxRef = useRef(0); // roster cursor saved when drilling into an artist
-  const artistAlbumsRef = useRef<PlexAlbum[]>([]);
+  const artistAlbumsRef = useRef<PlexAlbum[]>(linkedAlbums);
   // Search-tab mirrors (handler is registered once → read live values via refs).
   const searchZoneRef = useRef<'keyboard' | 'results'>('keyboard');
   const searchResIdxRef = useRef(0);
@@ -1088,6 +1099,12 @@ export default function BrowseScreen({navigation, route}: any) {
   };
 
   const backToRoster = () => {
+    // Arrived from Now Playing, there is no roster position to go back to, and
+    // Now Playing is where the press came from.
+    if (linkedArtist) {
+      navigation.goBack();
+      return;
+    }
     setArtistView('grid');
     artistViewRef.current = 'grid';
     // Restore the roster cursor saved when we drilled into this artist.
@@ -1572,6 +1589,10 @@ export default function BrowseScreen({navigation, route}: any) {
       // BACK never reaches onNav — MainActivity only maps the D-pad, select and
       // menu into WiiMNavKey — so this has to be its own handler.
       const backSub = BackHandler.addEventListener('hardwareBackPress', () => {
+        // Opened on one artist from Now Playing: BACK returns there directly.
+        if (linkedArtist) {
+          return false;
+        }
         if (!showLandingRef.current) {
           backToChooser();
           return true;

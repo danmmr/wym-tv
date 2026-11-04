@@ -56,9 +56,9 @@ const MENU_ROWS: string[][] = [
   // needs no special handling — Up from anywhere in the tiles lands on it, and
   // Down returns to the first tile.
   ['search'],
-  ['lucky', 'queue', 'album', 'recent'],
+  ['lucky', 'queue', 'album', 'artist'],
   ['libradio', 'deepcuts', 'styleradio'],
-  ['browse', 'settings', 'saver'],
+  ['browse', 'recent', 'settings', 'saver'],
 ];
 
 // The widest tile row. The search bar spans it, and the rows are centred, so
@@ -74,6 +74,7 @@ const MENU_META: Record<string, {label: string; icon: IconName}> = {
   lucky: {label: 'Feeling Lucky', icon: 'dice'},
   queue: {label: 'Queue', icon: 'queue'},
   album: {label: 'Album', icon: 'album'},
+  artist: {label: 'Artist', icon: 'artists'},
   libradio: {label: 'Library Radio', icon: 'radio'},
   deepcuts: {label: 'Deep Cuts', icon: 'deepcuts'},
   styleradio: {label: 'Style Radio', icon: 'styles'},
@@ -122,6 +123,7 @@ import {
   buildStationQueue,
   getTrackInfo,
   getArtistAlbumCount,
+  findArtistReleases,
   getAlbumStyles,
   getStyles,
   warmStyles,
@@ -397,6 +399,7 @@ export default function NowPlayingScreen({navigation}: any) {
                 key: info.albumKey,
                 title: info.albumTitle,
                 artist: info.albumArtist,
+                artistKey: info.artistKey,
                 thumb: info.albumThumb,
               }
             : undefined,
@@ -625,6 +628,40 @@ export default function NowPlayingScreen({navigation}: any) {
     }
   };
 
+  // Show what else the library holds by the current track's artist. Resolved
+  // here rather than in Browse so that an artist with nothing to show says so
+  // on this screen, instead of opening an empty grid. Reads the store for the
+  // same reason handlePlayAlbum does.
+  const handleArtist = async () => {
+    resetInactivityTimer();
+    const {albumRef, trackArtist, artist} = usePlayerStore.getState();
+    const name = trackArtist || artist;
+    setLastAction(`Finding ${name}…`);
+    try {
+      const found = await findArtistReleases({
+        artistKey: albumRef?.artistKey || '',
+        albumArtist: albumRef?.artist || '',
+        trackArtist: name,
+      });
+      if (!found) {
+        setLastAction(`Nothing else by ${name}`);
+        return;
+      }
+      setLastAction('');
+      // The catalog can take a second or more on a cold start, and being sent
+      // to Browse after already having moved on would be worse than nothing.
+      if (navigation.isFocused()) {
+        navigation.navigate('Browse', {
+          initialTab: 'artists',
+          artist: found.artist,
+          artistAlbums: found.albums,
+        });
+      }
+    } catch (e: any) {
+      setLastAction(`Artist — ${e?.message || 'error'}`);
+    }
+  };
+
   // Start a "radio" station: build a finite queue of station tracks and push
   // it to the WiiM. Library = random across library; Deep Cuts = never-played.
   const handleStation = async (kind: StationKind, label: string) => {
@@ -723,6 +760,9 @@ export default function NowPlayingScreen({navigation}: any) {
         break;
       case 'album':
         handlePlayAlbum();
+        break;
+      case 'artist':
+        handleArtist();
         break;
       case 'browse':
         navigation.navigate('Browse');

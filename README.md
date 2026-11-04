@@ -184,7 +184,7 @@ A tab bar across the top, content below, and a Back item at the bottom. Left fro
 | **Recent** | Most recently *added* albums, newest first, with a **Shuffle** button above the grid (Up from the top row) that plays a shuffled queue of recent tracks. Never cached, so a fresh import shows up immediately. |
 | **Playlists** | Grid of the composite art Plex builds for each playlist, alphabetical, with track counts and an icon marking a `smart` one. OK plays the playlist in its stored order. |
 | **Collections** | Grid of the library's album collections (composite cover, title, album count, `⚙` for a smart one). OK drills into that collection's albums, in the server's stored order. Left or Up from the album grid returns to the collections, on the same card you left from. |
-| **Search** | Not a tab — a bar on the Now Playing actions menu, above the nine tiles. It opens Browse with the keyboard already up: A-Z and 0-9 on the left (plus SPACE, DEL, CLEAR), matching albums on the right. Matches album title **or** artist, case-insensitive substring, across the entire catalog, with accented letters folded to their ASCII spelling so `eliane` finds Éliane Radigue. Right from the keyboard crosses into the results; Left goes back; BACK returns to the sections. |
+| **Search** | Not a tab — a bar on the Now Playing actions menu, above the tiles. It opens Browse with the keyboard already up: A-Z and 0-9 on the left (plus SPACE, DEL, CLEAR), matching albums on the right. Matches album title **or** artist, case-insensitive substring, across the entire catalog, with accented letters folded to their ASCII spelling so `eliane` finds Éliane Radigue. Right from the keyboard crosses into the results; Left goes back; BACK returns to the sections. |
 | **Presets** | The WiiM's own six stored presets. Hidden by default. |
 | **Inputs** | The WiiM's physical/streaming input sources. Hidden by default. |
 
@@ -254,6 +254,12 @@ Plays the album the **currently playing track** came from, starting at track 1. 
 It costs no extra Plex requests. The per-track lookup that already runs once per track for the codec carries the parent album in the same response.
 
 If the current track has no Plex id (line-in, a non-Plex stream, a queue pushed by another app), the status line says `No album for this track` rather than erroring.
+
+### Artist button
+
+Sits beside Album on the actions menu and opens the **current track's artist** on a grid of everything by them, so seeing what else they have takes no searching: their own albums first, then the compilations they appear on, each group oldest first. OK plays an album, ☰ opens its track list, and BACK returns to Now Playing.
+
+On a compilation it goes by the track's own credit rather than "Various Artists". Credits match by exact name, so "The Black Dog & Plaid", which Plex holds as a separate artist, is not included. If there is nothing to show, the status line says so.
 
 ### Radio stations: Library Radio, Deep Cuts and Style Radio
 
@@ -476,7 +482,7 @@ Two conventions are load-bearing throughout the screens:
 ### v1.1.0 — 2026-08-26
 
 **Search moved to the Now Playing menu.** It is no longer a tab. A full-width
-bar sits above the nine tiles on the ⋮ actions overlay and opens Browse with
+bar sits above the tiles on the ⋮ actions overlay and opens Browse with
 the keyboard already up, so the library tabs are five, not six.
 
 - **The keyboard has digits.** `0`–`9` on their own row. Without them a title

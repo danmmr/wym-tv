@@ -44,7 +44,13 @@ export interface PlayerState {
   // supplies `codec`/`trackArtist`, and cleared on every track change.
   // Undefined whenever the track has no Plex id (line-in, a non-Plex stream) —
   // the button reports that rather than acting.
-  albumRef?: {key: string; title: string; artist: string; thumb: string};
+  albumRef?: {
+    key: string;
+    title: string;
+    artist: string;
+    artistKey: string;
+    thumb: string;
+  };
   // The "why this?" line under the album title: the album's year and label,
   // and how many albums by this artist the library holds. Same lifecycle as
   // albumRef — from the per-track Plex request, cleared on every track change.

@@ -101,7 +101,20 @@ const defaultState: PlayerState = {
 export const usePlayerStore = create<PlayerStore>(set => ({
   ...defaultState,
   setPlayerState: state => {
-    set(state);
+    // The poll loop calls this every 1.5s with a fresh object, usually carrying
+    // the same values as last time (always, while paused). zustand notifies on
+    // every set(), so without this guard every bare subscriber re-rendered on
+    // every poll for nothing. Shallow per-field compare: albumRef/context are
+    // only ever written as new objects on a track change, so they still land.
+    set(prev => {
+      for (const k in state) {
+        const key = k as keyof PlayerState;
+        if (!Object.is(prev[key], state[key])) {
+          return state;
+        }
+      }
+      return prev;
+    });
     // Whenever stationKind is explicitly set (station started) or cleared (an
     // album/lucky queue took over), mirror it to disk so it can be restored.
     if ('stationKind' in state) {

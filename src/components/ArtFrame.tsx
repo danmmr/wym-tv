@@ -26,7 +26,7 @@ const BATCH = 30;
 // art presented large and crisp over a soft blurred version of itself, with a
 // slow Ken Burns drift and an accent-tinted glow. Entered from the Menu button
 // on Now Playing and dismissed on any key (the parent screen owns the D-pad and
-// calls onExit).
+// unmounts it).
 //
 // Two modes. While something is playing it frames THAT cover. With nothing
 // playing it becomes a slideshow over the library, crossfading a new random
@@ -103,8 +103,13 @@ function useSlideshow(active: boolean) {
   return {slideArt, slideAccent};
 }
 
-export default function ArtFrame() {
-  const {albumArt, accent, status} = usePlayerStore();
+// memo'd and subscribed field by field, for the same reason as the
+// Screensaver: Now Playing re-renders under it on every poll, and a bare
+// usePlayerStore() re-rendered this on every currentPos tick too.
+export default React.memo(function ArtFrame() {
+  const albumArt = usePlayerStore(s => s.albumArt);
+  const accent = usePlayerStore(s => s.accent);
+  const status = usePlayerStore(s => s.status);
 
   // While music is actually playing the frame shows THAT cover — it's what you
   // opened it for. Any other state (stopped, or paused an hour ago) means there
@@ -283,7 +288,7 @@ export default function ArtFrame() {
       <SaverHint showsRing={false} />
     </View>
   );
-}
+});
 
 const styles = StyleSheet.create({
   container: {flex: 1, backgroundColor: '#050505', overflow: 'hidden'},

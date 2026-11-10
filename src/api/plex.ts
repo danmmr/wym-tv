@@ -388,14 +388,6 @@ export async function getAlbumSample(
   return out;
 }
 
-// Drop the cached orderings so the next Browse open recomputes them (kept for a
-// future "reshuffle" affordance). With RANDOM_ORDER = 1 that redraws a fresh
-// 500 from the library; with 0 it rebuilds the same alphabetical list.
-export function reshuffle(): void {
-  sampleCache = null;
-  shuffledArtistsCache = null;
-}
-
 // --- artists (derived in-memory from the album catalog) ---------------------
 let artistsCache: PlexArtist[] | null = null;
 let shuffledArtistsCache: PlexArtist[] | null = null;

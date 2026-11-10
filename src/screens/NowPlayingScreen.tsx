@@ -160,7 +160,6 @@ const SAVER_MODES = [...VISUALIZERS, 'artframe'] as const;
 export default function NowPlayingScreen({navigation}: any) {
   const selectedDevice = useDeviceStore(s => s.selectedDevice);
   const playerState = usePlayerStore();
-  const [, setClient] = useState<WiiMClient | null>(null);
   const [showScreensaver, setShowScreensaver] = useState(false);
   const [vizIndex, setVizIndex] = useState(0);
   // The screensaver's album art shows a song-progress ring only when asked for
@@ -516,7 +515,6 @@ export default function NowPlayingScreen({navigation}: any) {
     }
 
     const wiimClient = new WiiMClient(selectedDevice.ip);
-    setClient(wiimClient);
     clientRef.current = wiimClient;
 
     // Reset reachability tracking for the new device, then start the loop.
@@ -1163,11 +1161,7 @@ export default function NowPlayingScreen({navigation}: any) {
       return <ArtFrame />;
     }
     return (
-      <Screensaver
-        onExit={handleScreensaverExit}
-        visualizer={mode}
-        showProgressRing={showProgressRing}
-      />
+      <Screensaver visualizer={mode} showProgressRing={showProgressRing} />
     );
   }
 

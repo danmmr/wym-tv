@@ -766,8 +766,9 @@ function clockNow(): string {
   });
 }
 
+// Dismissal is not a prop: the parent screen owns the D-pad and unmounts the
+// screensaver itself.
 export interface ScreensaverProps {
-  onExit: () => void;
   visualizer?: Visualizer;
   showProgressRing?: boolean;
 }
@@ -808,19 +809,21 @@ class ScreensaverErrorBoundary extends React.Component<
   }
 }
 
-export default function ScreensaverWrapped(props: ScreensaverProps) {
+// memo'd: Now Playing stays mounted underneath and still re-renders on every
+// poll while music plays (currentPos changes). Without this, each of those
+// re-rendered the whole saver root even though it subscribes field by field.
+const ScreensaverWrapped = React.memo(function ScreensaverWrapped(
+  props: ScreensaverProps,
+) {
   return (
     <ScreensaverErrorBoundary>
       <Screensaver {...props} />
     </ScreensaverErrorBoundary>
   );
-}
+});
+export default ScreensaverWrapped;
 
 function Screensaver({
-  // Unused: the parent screen owns the D-pad and dismisses the screensaver
-  // itself, so this is never invoked. Kept on the props type as documentation
-  // of the intended contract.
-  onExit: _onExit,
   visualizer = 'topo',
   showProgressRing = false,
 }: ScreensaverProps) {

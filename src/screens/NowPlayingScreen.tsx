@@ -115,6 +115,7 @@ const STYLE_LIST_H = STYLE_VISIBLE_ROWS * STYLE_ROW_H;
 const COVER = Math.round(WIN_H * 0.44);
 import {useDeviceStore} from '../store/deviceStore';
 import {useShallow} from 'zustand/react/shallow';
+import {MetaGate, statusSignature} from '../playback/metaGate';
 import {usePlayerStore} from '../store/playerStore';
 import type {PlayerState} from '../store/playerStore';
 import {WiiMClient, CURRENT_QUEUE} from '../api/wiim';
@@ -235,6 +236,7 @@ export default function NowPlayingScreen({navigation}: any) {
   const failCountRef = useRef(0);
   const inactivityTimerRef = useRef<NodeJS.Timeout>();
   const clientRef = useRef<WiiMClient | null>(null);
+  const metaGateRef = useRef(new MetaGate());
   const {albumArt} = useAlbumArt();
   // Derive a vibrant accent from the current cover art and mirror it into the
   // store; the whole player chrome tints to it, falling back to the default blue.
@@ -321,14 +323,24 @@ export default function NowPlayingScreen({navigation}: any) {
       return false;
     }
     try {
-      // getMetaInfo carries sampleRate/bitDepth/bitRate but can fail (returns
-      // a plain "Failed" string) when nothing is playing — keep it optional so
-      // it never blocks the core status update.
-      const [status, meta] = await Promise.all([
-        c.getStatus(),
-        c.getMetaInfo().catch(() => null),
-      ]);
-      const md = meta && typeof meta === 'object' ? meta.metaData : undefined;
+      const status = await c.getStatus();
+      // getMetaInfo carries the track id and sampleRate/bitDepth/bitRate, all
+      // of which belong to the track, so it is only asked for when the gate
+      // says the answer could have changed — see metaGate.ts. It can fail
+      // (returns a plain "Failed" string) when nothing is playing — keep it
+      // optional so it never blocks the core status update.
+      const gate = metaGateRef.current;
+      if (gate.shouldFetch(statusSignature(status))) {
+        const meta = await c.getMetaInfo().catch(() => null);
+        // A device switch while that was in flight has its own gate by now.
+        if (clientRef.current !== c) {
+          return true;
+        }
+        gate.store(
+          meta && typeof meta === 'object' ? meta.metaData : undefined,
+        );
+      }
+      const md = gate.metaData;
       usePlayerStore.getState().setPlayerState({
         status: status.status as any,
         title: decodeHex(status.Title) || 'Unknown',
@@ -527,6 +539,8 @@ export default function NowPlayingScreen({navigation}: any) {
 
     const wiimClient = new WiiMClient(selectedDevice.ip);
     clientRef.current = wiimClient;
+    // What is held describes the previous device's track.
+    metaGateRef.current = new MetaGate();
 
     // Reset reachability tracking for the new device, then start the loop.
     failCountRef.current = 0;

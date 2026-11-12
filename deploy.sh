@@ -294,8 +294,12 @@ if [ "$RUN_CHECKS" -eq 1 ]; then
     TOK_Q1=""
   fi
 
+  # Container-Start is NOT optional. With Size alone this request sent back
+  # nothing inside the timeout below (0 bytes in 30s, against 0.2s with the
+  # pair, same server, same minute), so the check reported a healthy server
+  # as unreachable on every run. The app always sends both.
   PART=$(curl -s --max-time 20 -H 'Accept: application/json' \
-    "$P_BASE/library/sections/$P_SEC/all?type=10&sort=random&X-Plex-Container-Size=1$TOK_Q" \
+    "$P_BASE/library/sections/$P_SEC/all?type=10&sort=random&X-Plex-Container-Start=0&X-Plex-Container-Size=1$TOK_Q" \
     | python3 -c 'import sys,json
 try:
     print(json.load(sys.stdin)["MediaContainer"]["Metadata"][0]["Media"][0]["Part"][0]["key"])
@@ -432,6 +436,15 @@ for IP in "${TARGETS[@]}"; do
     FAILED+=("$IP")
   else
     echo "    running (pid ${OLD_PID:-none} -> $NEW_PID)"
+    # A sleeping stick starts the process and then shows nothing: the activity
+    # sits behind an off display and the JS does not load until the stick
+    # wakes, so from the sofa the deploy looks like it never restarted the
+    # app. Say so rather than wake it — on most setups waking the stick turns
+    # the TV on, which is not this script's call to make.
+    if adb -s "$DEV" shell dumpsys power 2>/dev/null | grep -q "mWakefulness=Asleep"; then
+      echo "    NOTE: this stick is asleep — the new build appears when it wakes."
+      echo "          To wake it now: adb -s $DEV shell input keyevent KEYCODE_WAKEUP"
+    fi
   fi
 done
 

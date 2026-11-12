@@ -24,6 +24,10 @@ on:
   # probed and a release has to go out on local checks alone.
   workflow_dispatch:
 
+# Nothing here writes to the repo, so the token is read-only.
+permissions:
+  contents: read
+
 jobs:
   check:
     name: Typecheck, lint and test

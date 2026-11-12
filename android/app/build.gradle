@@ -88,6 +88,14 @@ android {
         // release that silently refuses to install. Bump both together.
         versionName new groovy.json.JsonSlurper()
                 .parseText(file("../../package.json").text).version
+        // Package only the ABIs named in gradle.properties. That property on
+        // its own stops the from-source native builds (Skia, Reanimated) for
+        // other ABIs, but the prebuilt React Native and Hermes AARs carry all
+        // four regardless, and without this filter the x86 pair rides along
+        // into an APK that only ever runs on ARM Fire Sticks.
+        ndk {
+            abiFilters(*project.property('reactNativeArchitectures').split(','))
+        }
     }
     signingConfigs {
         debug {

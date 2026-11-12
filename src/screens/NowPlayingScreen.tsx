@@ -114,6 +114,7 @@ const STYLE_VISIBLE_ROWS = Math.max(1, Math.floor((WIN_H - 150) / STYLE_ROW_H));
 const STYLE_LIST_H = STYLE_VISIBLE_ROWS * STYLE_ROW_H;
 const COVER = Math.round(WIN_H * 0.44);
 import {useDeviceStore} from '../store/deviceStore';
+import {useShallow} from 'zustand/react/shallow';
 import {usePlayerStore} from '../store/playerStore';
 import type {PlayerState} from '../store/playerStore';
 import {WiiMClient, CURRENT_QUEUE} from '../api/wiim';
@@ -159,7 +160,27 @@ const SAVER_MODES = [...VISUALIZERS, 'artframe'] as const;
 
 export default function NowPlayingScreen({navigation}: any) {
   const selectedDevice = useDeviceStore(s => s.selectedDevice);
-  const playerState = usePlayerStore();
+  // Field by field, and deliberately WITHOUT currentPos. The poll writes a new
+  // position every 1.5s while music plays, and a bare usePlayerStore() made
+  // that re-render this whole screen each time — including while it sat
+  // mounted underneath Browse, Queue or Album. The playhead is ProgressRow's
+  // business alone; everything here changes only on a track or state change.
+  const playerState = usePlayerStore(
+    useShallow(s => ({
+      status: s.status,
+      title: s.title,
+      artist: s.artist,
+      trackArtist: s.trackArtist,
+      album: s.album,
+      volume: s.volume,
+      codec: s.codec,
+      bitDepth: s.bitDepth,
+      sampleRate: s.sampleRate,
+      bitRate: s.bitRate,
+      context: s.context,
+      accent: s.accent,
+    })),
+  );
   const [showScreensaver, setShowScreensaver] = useState(false);
   const [vizIndex, setVizIndex] = useState(0);
   // The screensaver's album art shows a song-progress ring only when asked for
@@ -234,16 +255,6 @@ export default function NowPlayingScreen({navigation}: any) {
   const STATION_SIZE = 50;
   const POLL_INTERVAL = 1500; // normal cadence when the device is reachable
   const MAX_POLL_INTERVAL = 10000; // backoff ceiling while unreachable
-
-  const fmt = (ms: number) => {
-    if (!ms || ms < 0) {
-      return '0:00';
-    }
-    const total = Math.floor(ms / 1000);
-    const m = Math.floor(total / 60);
-    const s = total % 60;
-    return `${m}:${s.toString().padStart(2, '0')}`;
-  };
 
   // Quality tier badge from codec + depth + rate. Hi-Res = 24-bit or above
   // 48 kHz (the standard Hi-Res Audio bar); lossless codecs at CD spec get a
@@ -1000,16 +1011,14 @@ export default function NowPlayingScreen({navigation}: any) {
   // Drop the preview once the device's own position has caught up to it, so
   // the bar hands control back to the poll rather than staying frozen. A plain
   // timeout would either cut the preview off early or strand it if the seek
-  // failed; comparing positions ends it exactly when reality agrees.
-  useEffect(() => {
-    if (seekPreview === null) {
-      return;
-    }
-    if (Math.abs(playerState.currentPos - seekPreview) < 3000) {
-      seekPreviewRef.current = null;
-      setSeekPreview(null);
-    }
-  }, [playerState.currentPos, seekPreview]);
+  // failed; comparing positions ends it exactly when reality agrees. The
+  // comparison itself lives in ProgressRow, the only thing that watches the
+  // playhead; this is what it calls. Stable, so the memoised row is not
+  // re-rendered by a new function identity.
+  const clearSeekPreview = useCallback(() => {
+    seekPreviewRef.current = null;
+    setSeekPreview(null);
+  }, []);
 
   // A track change invalidates any scrub aimed at the old one.
   useEffect(() => {
@@ -1167,13 +1176,6 @@ export default function NowPlayingScreen({navigation}: any) {
 
   const tier = resTier();
   const contextLine = whyThisLine(playerState.context);
-  // While scrubbing the bar follows the preview; otherwise it follows the
-  // device. Same expression either way, only the numerator changes.
-  const shownPos = seekPreview ?? playerState.currentPos;
-  const progressPct =
-    playerState.duration > 0
-      ? Math.min(100, (shownPos / playerState.duration) * 100)
-      : 0;
 
   return (
     <View style={styles.container}>
@@ -1241,34 +1243,12 @@ export default function NowPlayingScreen({navigation}: any) {
             </View>
           ) : null}
 
-          <View style={styles.progressRow}>
-            <Text style={styles.time}>{fmt(shownPos)}</Text>
-            <View
-              style={[
-                styles.progressBar,
-                // Focus on a 4dp line needs to read from a sofa: the bar grows
-                // and takes the accent as a track tint, rather than the border
-                // a Focusable would draw around a hairline.
-                focusedKey === 'seek' && styles.progressBarFocused,
-              ]}>
-              <View
-                style={[
-                  styles.progressFill,
-                  {backgroundColor: accent, width: `${progressPct}%`},
-                ]}
-              />
-              {/* Position dot at the fill head — the one cue that reads as a
-                  scrubbing player rather than a loading bar. */}
-              <View
-                style={[
-                  styles.progressDot,
-                  focusedKey === 'seek' && styles.progressDotFocused,
-                  {backgroundColor: accent, left: `${progressPct}%`},
-                ]}
-              />
-            </View>
-            <Text style={styles.time}>{fmt(playerState.duration)}</Text>
-          </View>
+          <ProgressRow
+            seekPreview={seekPreview}
+            focused={focusedKey === 'seek'}
+            accent={accent}
+            onCaughtUp={clearSeekPreview}
+          />
 
           <View style={styles.transport}>
             {(
@@ -1470,6 +1450,77 @@ export default function NowPlayingScreen({navigation}: any) {
 //
 // The fade is keyed on the art URL, not on the track id: two tracks from the
 // same album share a cover, and re-fading identical art reads as a glitch.
+const fmt = (ms: number) => {
+  if (!ms || ms < 0) {
+    return '0:00';
+  }
+  const total = Math.floor(ms / 1000);
+  const m = Math.floor(total / 60);
+  const s = total % 60;
+  return `${m}:${s.toString().padStart(2, '0')}`;
+};
+
+// The elapsed time, the bar and the total. This is the ONLY part of the screen
+// that follows the playhead, so it subscribes to the position itself: the 1.5s
+// poll re-renders this row and nothing above it.
+const ProgressRow = React.memo(function ProgressRow({
+  seekPreview,
+  focused,
+  accent,
+  onCaughtUp,
+}: {
+  seekPreview: number | null; // where a scrub in flight is headed, else null
+  focused: boolean;
+  accent: string;
+  onCaughtUp: () => void; // the device has reached the preview; drop it
+}) {
+  const currentPos = usePlayerStore(s => s.currentPos);
+  const duration = usePlayerStore(s => s.duration);
+
+  useEffect(() => {
+    if (seekPreview !== null && Math.abs(currentPos - seekPreview) < 3000) {
+      onCaughtUp();
+    }
+  }, [currentPos, seekPreview, onCaughtUp]);
+
+  // While scrubbing the bar follows the preview; otherwise it follows the
+  // device. Same expression either way, only the numerator changes.
+  const shownPos = seekPreview ?? currentPos;
+  const progressPct =
+    duration > 0 ? Math.min(100, (shownPos / duration) * 100) : 0;
+
+  return (
+    <View style={styles.progressRow}>
+      <Text style={styles.time}>{fmt(shownPos)}</Text>
+      <View
+        style={[
+          styles.progressBar,
+          // Focus on a 4dp line needs to read from a sofa: the bar grows
+          // and takes the accent as a track tint, rather than the border
+          // a Focusable would draw around a hairline.
+          focused && styles.progressBarFocused,
+        ]}>
+        <View
+          style={[
+            styles.progressFill,
+            {backgroundColor: accent, width: `${progressPct}%`},
+          ]}
+        />
+        {/* Position dot at the fill head — the one cue that reads as a
+            scrubbing player rather than a loading bar. */}
+        <View
+          style={[
+            styles.progressDot,
+            focused && styles.progressDotFocused,
+            {backgroundColor: accent, left: `${progressPct}%`},
+          ]}
+        />
+      </View>
+      <Text style={styles.time}>{fmt(duration)}</Text>
+    </View>
+  );
+});
+
 function AlbumCover({uri, accent}: {uri?: string; accent: string}) {
   const [layers, setLayers] = useState<{prev?: string; next?: string}>({
     next: uri,

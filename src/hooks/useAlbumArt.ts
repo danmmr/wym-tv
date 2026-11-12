@@ -8,7 +8,13 @@ import {resolveTrackArt, usableArtUri} from './resolveTrackArt';
 export const useAlbumArt = () => {
   const resolverRef = useRef(new CoverArtResolver());
   const selectedDevice = useDeviceStore(s => s.selectedDevice);
-  const {title, artist, album, albumArt, setAlbumArt} = usePlayerStore();
+  // Field by field: a bare usePlayerStore() re-renders the host screen on every
+  // position tick of the poll.
+  const title = usePlayerStore(s => s.title);
+  const artist = usePlayerStore(s => s.artist);
+  const album = usePlayerStore(s => s.album);
+  const albumArt = usePlayerStore(s => s.albumArt);
+  const setAlbumArt = usePlayerStore(s => s.setAlbumArt);
 
   useEffect(() => {
     let cancelled = false;

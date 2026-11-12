@@ -354,6 +354,28 @@ if [ ! -f "$APK" ]; then
 fi
 echo "    $(du -h "$APK" | cut -f1) $APK"
 
+# Say who signed it. assembleRelease falls back to the stock debug key when no
+# release key is configured (see README, "Release signing") and gradle does not
+# mention it, so a build from a machine missing ~/.gradle/gradle.properties
+# looks exactly like a real one. A debug-signed APK is fine on your own stick
+# and must never be published: nobody who installed it could upgrade to a
+# properly signed release afterwards.
+APKSIGNER=$(ls -d "$ANDROID_SDK_ROOT"/build-tools/*/ 2>/dev/null | sort -V | tail -1)apksigner
+if [ -x "$APKSIGNER" ]; then
+  SIGNER=$("$APKSIGNER" verify --print-certs "$APK" 2>/dev/null \
+    | sed -n 's/^Signer #1 certificate DN: //p')
+  if [ -z "$SIGNER" ]; then
+    echo "    WARNING: could not read the APK's signer" >&2
+  elif echo "$SIGNER" | grep -q "CN=Android Debug"; then
+    echo "    WARNING: signed with the DEBUG key ($SIGNER)." >&2
+    echo "    Fine for your own stick. Do NOT publish this APK." >&2
+  else
+    echo "    signed by: $SIGNER"
+  fi
+else
+  echo "    (apksigner not found in build-tools; signer not checked)" >&2
+fi
+
 # --- Deploy ----------------------------------------------------------------
 FAILED=()
 for IP in "${TARGETS[@]}"; do

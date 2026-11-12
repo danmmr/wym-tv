@@ -73,7 +73,10 @@ export class CoverArtResolver {
     releaseId: string,
   ): Promise<string | null> {
     try {
-      const response = await axios.get(
+      // HEAD, not GET: this only asks whether a cover exists. A GET pulled the
+      // full-size image (often several MB) into JS memory just to read the
+      // status, and the Image component then downloaded it a second time.
+      const response = await axios.head(
         `${COVERART_API}/release/${releaseId}/front`,
         {
           timeout: 5000,

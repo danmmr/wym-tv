@@ -21,7 +21,7 @@ type Item = (typeof ITEMS)[number];
 
 export default function SettingsScreen({navigation}: any) {
   const deviceStore = useDeviceStore();
-  const playerStore = usePlayerStore();
+  const clearPlayerCache = usePlayerStore(s => s.clearCache);
   const [focusIdx, setFocusIdx] = useState(0);
   const focusIdxRef = useRef(0);
 
@@ -34,7 +34,7 @@ export default function SettingsScreen({navigation}: any) {
 
   const handleClearCache = () => {
     deviceStore.clearCache();
-    playerStore.clearCache();
+    clearPlayerCache();
     Alert.alert('Cache cleared');
   };
 

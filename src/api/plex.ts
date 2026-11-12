@@ -466,10 +466,16 @@ export function getAlbumsByArtist(key: string): PlexAlbum[] {
 }
 
 function oldestFirst(x: PlexAlbum, y: PlexAlbum): number {
-  return (
-    (x.year || '').localeCompare(y.year || '') ||
-    x.title.localeCompare(y.title, undefined, {sensitivity: 'base'})
-  );
+  // Plain compares over fold(), not localeCompare with options — see
+  // sortedByName for what that costs on Hermes.
+  const xy = x.year || '';
+  const yy = y.year || '';
+  if (xy !== yy) {
+    return xy < yy ? -1 : 1;
+  }
+  const xt = fold(x.title);
+  const yt = fold(y.title);
+  return xt < yt ? -1 : xt > yt ? 1 : 0;
 }
 
 function albumsForKey(catalog: PlexAlbum[], key: string): PlexAlbum[] {

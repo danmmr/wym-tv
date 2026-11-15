@@ -192,7 +192,6 @@ uniform float2 resolution;
 uniform float  time;
 uniform float  colorShift;
 uniform float  density;
-uniform float  pulse;
 ${PALETTE_UNIFORMS}
 ${PALETTE_FN}
 float terrain(float2 p, float t, float amp) {
@@ -211,9 +210,9 @@ half4 main(float2 fragCoord) {
   float aspect = resolution.x / resolution.y;
   float s = 3.2 / resolution.y;  // field units per pixel
   float2 p = (fragCoord / resolution - 0.5) * float2(aspect, 1.0) * 3.2;
-  // Deliberately deaf to density and pulse. Both carry the title-hash beat,
-  // which resets abruptly every beat; in the warp amount it made the whole
-  // terrain jump, and thin lines show any discontinuity at once.
+  // Deliberately deaf to density. It steps with the volume, and in the warp
+  // amount a step makes the whole terrain jump; thin lines show any
+  // discontinuity at once.
   float t = time * 0.12;
   const float amp = 0.6;
 
@@ -248,7 +247,6 @@ uniform float2 resolution;
 uniform float  time;
 uniform float  colorShift;
 uniform float  density;
-uniform float  pulse;
 ${PALETTE_UNIFORMS}
 ${PALETTE_FN}
 half4 main(float2 fragCoord) {
@@ -273,7 +271,9 @@ half4 main(float2 fragCoord) {
   float hue = fract(field * 0.6 + colorShift);
   float3 col = palette(hue);
 
-  float bright = 0.85 + pulse * 0.15;
+  // Constant. This used to throb to a BPM hashed from the track title; 0.9 is
+  // the mean of that throb, so the field keeps its average brightness.
+  const float bright = 0.9;
   return half4(half3(col * bright + dither(fragCoord)), 1.0);
 }
 `;
@@ -293,7 +293,6 @@ uniform float2 resolution;
 uniform float  time;
 uniform float  colorShift;
 uniform float  density;
-uniform float  pulse;
 ${PALETTE_UNIFORMS}
 ${PALETTE_FN}
 half4 main(float2 fragCoord) {
@@ -340,7 +339,6 @@ uniform float2 resolution;
 uniform float  time;
 uniform float  colorShift;
 uniform float  density;
-uniform float  pulse;
 ${PALETTE_UNIFORMS}
 ${PALETTE_FN}
 half4 main(float2 fragCoord) {
@@ -372,7 +370,8 @@ half4 main(float2 fragCoord) {
   float m = smoothstep(thr - 0.4, thr + 0.6, field);
 
   float hue = fract(field * 0.15 + colorShift);
-  float3 lava = palette(hue) * (0.9 + pulse * 0.2);
+  // 0.97 is the mean of the title-hash throb that used to scale this.
+  float3 lava = palette(hue) * 0.97;
   float3 bg = float3(0.04, 0.02, 0.08);
   return half4(mix(bg, lava, m) + dither(fragCoord), 1.0);
 }
@@ -407,7 +406,7 @@ function makeCirclePath() {
 }
 
 // Screensaver frame caps. Everything animated here is slow and ambient (13-40s
-// field drift, 17s/13s art orbit, beat-period ring decay), so the cap costs
+// field drift, 17s/13s art orbit), so the cap costs
 // nothing visually and buys back continuous CPU/GPU load and heat — the
 // multi-hour throttle/lockup driver on the 1.7GB Fire Stick.
 //
@@ -664,18 +663,9 @@ const AlbumArt = React.memo(function AlbumArt({
   );
 });
 
-function titleToBpm(title: string): number {
-  let hash = 0;
-  for (let i = 0; i < title.length; i++) {
-    hash = ((hash << 5) - hash + title.charCodeAt(i)) & 0xffffffff;
-  }
-  return 60 + (Math.abs(hash) % 80);
-}
-
 interface VisualProps {
   volume: number;
   trackProgress: SharedValue<number>;
-  bpm: number;
   visualizer: Visualizer;
   accent: string;
   clock: SharedValue<number>;
@@ -686,7 +676,6 @@ interface VisualProps {
 const VisualizerCanvas = React.memo(function VisualizerCanvas({
   volume,
   trackProgress,
-  bpm,
   visualizer,
   accent,
   clock,
@@ -723,9 +712,10 @@ const VisualizerCanvas = React.memo(function VisualizerCanvas({
       // present, but not something you catch yourself watching.
       warpTime = t - (3.0 / Math.PI) * Math.cos((t * Math.PI) / 20);
     }
-    const beatPeriod = 60 / bpm;
-    const beatPulse = Math.pow(1 - (t % beatPeriod) / beatPeriod, 2);
-    const density = 0.7 + (volume / 100) * 0.6 + beatPulse * 0.2;
+    // Volume only. There is no beat term: the app never hears the audio (the
+    // WiiM pulls the stream itself), and the one this used to carry was a BPM
+    // hashed from the track title — motion that looked reactive and was not.
+    const density = 0.7 + (volume / 100) * 0.6;
     // Topo leaves out trackProgress: it advances in a step per 1.5s poll, and
     // the line colour visibly ticks with it.
     const colorShift =
@@ -735,11 +725,10 @@ const VisualizerCanvas = React.memo(function VisualizerCanvas({
       time: warpTime,
       colorShift,
       density,
-      pulse: beatPulse,
       palLo,
       palHi,
     };
-  }, [bpm, volume, trackProgress, visualizer, palLo, palHi]);
+  }, [volume, trackProgress, visualizer, palLo, palHi]);
 
   const effect = EFFECT_BY_VISUALIZER[visualizer] ?? TOPO_EFFECT;
   if (!effect) {
@@ -864,8 +853,6 @@ function Screensaver({
     });
   }, [trackProgress]);
 
-  const bpm = titleToBpm(title || 'default');
-
   // The screen-awake hold lives in App.tsx (src/wakeHold.ts) now, app-wide.
   // A hold here would clear the flag for everyone when the saver closed.
 
@@ -908,7 +895,6 @@ function Screensaver({
       <VisualizerCanvas
         volume={volume}
         trackProgress={trackProgress}
-        bpm={bpm}
         visualizer={visualizer}
         accent={ringColor}
         clock={clock}

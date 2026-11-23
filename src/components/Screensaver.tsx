@@ -49,7 +49,7 @@ const DOWNSCALE = 1.5; // 640x360 dp canvas -> 1280x720 physical
 const LOW_W = Math.round(width / DOWNSCALE);
 const LOW_H = Math.round(height / DOWNSCALE);
 
-// All four visualizers share one palette: a ramp between two endpoint colours,
+// All the visualizers share one palette: a ramp between two endpoint colours,
 // swept by whatever scalar field that visualizer computes. The endpoints arrive
 // as uniforms so the ramp can follow the album art (see paletteFor).
 const PALETTE_UNIFORMS = `
@@ -379,10 +379,52 @@ half4 main(float2 fragCoord) {
 
 const METABALL_EFFECT = Skia.RuntimeEffect.Make(METABALL_SRC);
 
+// Moire: interference between four drifting ring sources. Ported from a GLES
+// scene that also blended in 30% of its previous frame; a Skia runtime shader
+// has no previous frame, so that trail is gone. Constant rate and deaf to
+// density, like topo: the rings are fine enough that any step shows.
+const MOIRE_SRC = `
+uniform float2 resolution;
+uniform float  time;
+uniform float  colorShift;
+uniform float  density;
+${PALETTE_UNIFORMS}
+${PALETTE_FN}
+half4 main(float2 fragCoord) {
+  float2 p = (fragCoord - 0.5 * resolution) / resolution.y;
+  float t = time * 0.5;
+
+  float v = 0.0;
+  for (int i = 0; i < 4; i++) {
+    float fi = float(i);
+    float2 c = 0.45 * float2(
+      sin(t * (0.3 + 0.07 * fi) + fi * 1.7),
+      cos(t * (0.23 + 0.05 * fi) + fi * 2.3)
+    );
+    v += sin(length(p - c) * (26.0 + fi * 3.0) - t * 3.0);
+  }
+
+  // v spans +/-4. The GLES original used v * 0.08 with a multi-hue palette; on
+  // this two-colour ramp that put most of the screen at the same point of the
+  // ramp, so it all went dim together. 0.16 keeps dark and bright rings on
+  // screen at once, and the gain makes up for the ramp's 0.62 ceiling.
+  float3 col = palette(v * 0.16 + colorShift) * (0.85 + 0.55 * cos(v * 1.2));
+  return half4(clamp(col + dither(fragCoord), float3(0.0), float3(1.0)), 1.0);
+}
+`;
+
+const MOIRE_EFFECT = Skia.RuntimeEffect.Make(MOIRE_SRC);
+
 // Selectable background visualizers. Left/right on the remote step through
 // these, then the art frame (SAVER_MODES in NowPlayingScreen). The first is the
 // one the saver opens on.
-export const VISUALIZERS = ['topo', 'flow', 'starfield', 'metaball'] as const;
+export const VISUALIZERS = [
+  'topo',
+  'flow',
+  'starfield',
+  'metaball',
+  'moire',
+] as const;
 export type Visualizer = (typeof VISUALIZERS)[number];
 
 const EFFECT_BY_VISUALIZER: Record<
@@ -393,6 +435,7 @@ const EFFECT_BY_VISUALIZER: Record<
   flow: FLOW_EFFECT,
   starfield: STARFIELD_EFFECT,
   metaball: METABALL_EFFECT,
+  moire: MOIRE_EFFECT,
 };
 
 const ART_SIZE = 180;
@@ -692,10 +735,11 @@ const VisualizerCanvas = React.memo(function VisualizerCanvas({
     // discernible period. Four terms at 26s/14.6s/62s/9.4s cycles whose
     // derivative magnitudes sum to 0.91 so the field never actually reverses.
     // Starfield and metaball keep the original 40s sinusoidal breath.
+    const steady = visualizer === 'topo' || visualizer === 'moire';
     let warpTime: number;
-    if (visualizer === 'topo') {
+    if (steady) {
       // Constant rate. The surging below swings speed 0.1x-1.9x, which a soft
-      // field hides and a field of thin contour lines shows as lurching.
+      // field hides and a field of thin contour lines or rings shows as lurching.
       warpTime = t;
     } else if (visualizer === 'flow') {
       warpTime =
@@ -716,10 +760,10 @@ const VisualizerCanvas = React.memo(function VisualizerCanvas({
     // WiiM pulls the stream itself), and the one this used to carry was a BPM
     // hashed from the track title — motion that looked reactive and was not.
     const density = 0.7 + (volume / 100) * 0.6;
-    // Topo leaves out trackProgress: it advances in a step per 1.5s poll, and
-    // the line colour visibly ticks with it.
+    // Topo and moire leave out trackProgress: it advances in a step per 1.5s poll, and
+    // the colour of fine lines visibly ticks with it.
     const colorShift =
-      ((visualizer === 'topo' ? 0 : trackProgress.value * 0.8) + t * 0.018) % 1;
+      ((steady ? 0 : trackProgress.value * 0.8) + t * 0.018) % 1;
     return {
       resolution: [LOW_W, LOW_H],
       time: warpTime,

@@ -1,10 +1,12 @@
 import React, {useEffect, useState, useMemo} from 'react';
-import {View, Text, StyleSheet, Dimensions} from 'react-native';
+import {View, Text, StyleSheet, Dimensions, PixelRatio} from 'react-native';
 import {
   Canvas,
   Fill,
+  FilterMode,
   Group,
   Image as SkiaImage,
+  MipmapMode,
   Path,
   Shader,
   Skia,
@@ -553,6 +555,47 @@ function useCappedClock(fps: number) {
 // memo'd: a re-render of the Screensaver root must not rebuild this subtree and
 // its Skia objects. Every prop is a primitive or the stable shared clock, so the
 // default shallow compare is the right one.
+// Covers arrive at up to 1000x1000, which is a 4 MB texture once uploaded, for
+// art drawn at ART_SIZE. Graphics memory grew by about that much on nearly every
+// album change and stayed flat with the art hidden. So scale each cover down on
+// the CPU (Surface.Make is a raster surface) and hand the canvas only the small
+// copy. Centre-crops to a square, as fit="cover" did. Frees every intermediate.
+function decodeArt(bytes: Uint8Array): SkImage | null {
+  const data = Skia.Data.fromBytes(bytes);
+  const full = Skia.Image.MakeImageFromEncoded(data);
+  data.dispose();
+  if (!full) {
+    return null;
+  }
+  const px = PixelRatio.getPixelSizeForLayoutSize(ART_SIZE);
+  const side = Math.min(full.width(), full.height());
+  const surface = Skia.Surface.Make(px, px);
+  if (!surface) {
+    return full;
+  }
+  try {
+    surface
+      .getCanvas()
+      .drawImageRectOptions(
+        full,
+        Skia.XYWHRect(
+          (full.width() - side) / 2,
+          (full.height() - side) / 2,
+          side,
+          side,
+        ),
+        Skia.XYWHRect(0, 0, px, px),
+        FilterMode.Linear,
+        MipmapMode.Linear,
+      );
+    surface.flush();
+    return surface.makeImageSnapshot();
+  } finally {
+    full.dispose();
+    surface.dispose();
+  }
+}
+
 const AlbumArt = React.memo(function AlbumArt({
   uri,
   showProgressRing,
@@ -592,8 +635,7 @@ const AlbumArt = React.memo(function AlbumArt({
         if (cancelled) {
           return;
         }
-        const data = Skia.Data.fromBytes(new Uint8Array(buf));
-        setImg(Skia.Image.MakeImageFromEncoded(data));
+        setImg(decodeArt(new Uint8Array(buf)));
       })
       .catch(() => {});
     return () => {

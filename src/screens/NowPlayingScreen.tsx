@@ -149,14 +149,15 @@ import {
 } from '../hooks/useAccentColor';
 import Screensaver, {VISUALIZERS} from '../components/Screensaver';
 import ArtFrame from '../components/ArtFrame';
+import {loadHideOverlay, saveHideOverlay} from '../store/saverPrefs';
 
-// What the screensaver can show. The four shader visualizers plus the digital
+// What the screensaver can show. The shader visualizers plus the digital
 // art frame, which used to be a separate mode entered from the ☰ button and is
-// now simply the fifth thing the saver can be.
+// now simply the last thing the saver can be.
 //
-// Five modes do not fit four D-pad directions, so the old "each direction picks
+// This many modes do not fit four D-pad directions, so the old "each direction picks
 // a visualizer" mapping is gone: left and right step through this list instead,
-// which is also the only scheme that still works if a sixth is ever added.
+// which is also the only scheme that still works as more are added.
 const SAVER_MODES = [...VISUALIZERS, 'artframe'] as const;
 
 export default function NowPlayingScreen({navigation}: any) {
@@ -188,6 +189,26 @@ export default function NowPlayingScreen({navigation}: any) {
   // — OFF by default, toggled with the menu/options button while the saver is
   // up. It replaces the old always-on beat ring.
   const [showProgressRing, setShowProgressRing] = useState(false);
+  // Up in the saver hides the floating art and text, leaving the visualizer
+  // alone. Refs because the D-pad listener is registered once (see below).
+  const [hideOverlay, setHideOverlay] = useState(false);
+  const hideOverlayRef = useRef(false);
+  const vizIndexRef = useRef(0);
+  useEffect(() => {
+    vizIndexRef.current = vizIndex;
+  }, [vizIndex]);
+  useEffect(() => {
+    let cancelled = false;
+    loadHideOverlay().then(hide => {
+      if (!cancelled) {
+        hideOverlayRef.current = hide;
+        setHideOverlay(hide);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   const [lastAction, setLastAction] = useState('');
   const [connection, setConnection] = useState<'ok' | 'reconnecting'>('ok');
   const [focusRow, setFocusRow] = useState(1);
@@ -1065,8 +1086,9 @@ export default function NowPlayingScreen({navigation}: any) {
           // Down, OK/center and BACK dismiss; the menu/options button toggles
           // the album-art progress ring. Any other key also dismisses.
           //
-          // Up is deliberately INERT rather than dismissing. Up and down both
-          // used to pick a visualizer (starfield and metaball), so anyone
+          // Up hides or shows the floating art and text, and deliberately does
+          // NOT dismiss (on the art frame it is inert). Up and down both used
+          // to pick a visualizer (starfield and metaball), so anyone
           // reaching for one the old way would otherwise be thrown back to Now
           // Playing by the fall-through. Down is the deliberate way out.
           if (k === 'left') {
@@ -1074,7 +1096,12 @@ export default function NowPlayingScreen({navigation}: any) {
           } else if (k === 'right') {
             setVizIndex(i => (i + 1) % SAVER_MODES.length);
           } else if (k === 'up') {
-            // inert
+            if (SAVER_MODES[vizIndexRef.current] !== 'artframe') {
+              const hide = !hideOverlayRef.current;
+              hideOverlayRef.current = hide;
+              setHideOverlay(hide);
+              saveHideOverlay(hide);
+            }
           } else if (k === 'down' || k === 'select') {
             handleScreensaverExit(); // down or OK/center returns to Now Playing
           } else if (k === 'menu') {
@@ -1184,7 +1211,11 @@ export default function NowPlayingScreen({navigation}: any) {
       return <ArtFrame />;
     }
     return (
-      <Screensaver visualizer={mode} showProgressRing={showProgressRing} />
+      <Screensaver
+        visualizer={mode}
+        showProgressRing={showProgressRing}
+        hideOverlay={hideOverlay}
+      />
     );
   }
 

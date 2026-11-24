@@ -4,8 +4,8 @@ import {Animated, StyleSheet, Text} from 'react-native';
 // A one-line reminder of what the D-pad does while a screensaver is up, shown
 // on entry and faded out again a few seconds later.
 //
-// The keys were undiscoverable: left/right cycle five modes, down returns to
-// Now Playing and up deliberately does not, and the menu button toggles the
+// The keys were undiscoverable: left/right cycle the modes, down returns to
+// Now Playing and up hides the art and text, and the menu button toggles the
 // progress ring. None of that is guessable from a full-screen visualizer, and
 // a permanent legend would spoil the one thing the screen is for.
 //
@@ -15,7 +15,9 @@ import {Animated, StyleSheet, Text} from 'react-native';
 const HINT_VISIBLE_MS = 5000;
 const HINT_FADE_MS = 800;
 
-export default function SaverHint({showsRing = true}: {showsRing?: boolean}) {
+// `shader` adds the keys that only the shader views answer to; the art frame
+// has no overlay to hide and no progress ring.
+export default function SaverHint({shader = true}: {shader?: boolean}) {
   const opacity = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
@@ -35,7 +37,8 @@ export default function SaverHint({showsRing = true}: {showsRing?: boolean}) {
   }, [opacity]);
 
   const parts = ['Left / Right  change view', 'Down  back to player'];
-  if (showsRing) {
+  if (shader) {
+    parts.push('Up  hide art and text');
     parts.push('Menu  progress ring');
   }
 

@@ -285,7 +285,7 @@ export default React.memo(function ArtFrame() {
 
       {/* The frame has no progress ring, so the menu key does nothing here and
           the hint must not claim otherwise. */}
-      <SaverHint showsRing={false} />
+      <SaverHint shader={false} />
     </View>
   );
 });

@@ -804,6 +804,8 @@ function clockNow(): string {
 export interface ScreensaverProps {
   visualizer?: Visualizer;
   showProgressRing?: boolean;
+  // Leaves only the visualizer: no album art, title, artist or clock.
+  hideOverlay?: boolean;
 }
 
 class ScreensaverErrorBoundary extends React.Component<
@@ -859,6 +861,7 @@ export default ScreensaverWrapped;
 function Screensaver({
   visualizer = 'topo',
   showProgressRing = false,
+  hideOverlay = false,
 }: ScreensaverProps) {
   // Subscribe field by field, NOT `usePlayerStore()` bare. The bare call
   // re-renders this whole subtree on every set() the poll loop makes, including
@@ -901,19 +904,19 @@ function Screensaver({
   // A hold here would clear the flag for everyone when the saver closed.
 
   // Only tick while the clock is actually on screen. The render below shows the
-  // clock ONLY when `title` is empty, but this interval used to run regardless —
+  // clock ONLY when `title` is empty and the overlay is not hidden, but this interval used to run regardless —
   // so with music playing it fired a setState every second whose value was never
   // displayed, re-rendering this entire subtree ~60x a minute for nothing. The
   // condition is deliberately the same expression the render branches on; if one
   // changes the other must too.
   useEffect(() => {
-    if (title) {
+    if (title || hideOverlay) {
       return;
     }
     setClockStr(clockNow());
     const id = setInterval(() => setClockStr(clockNow()), 1000);
     return () => clearInterval(id);
-  }, [title]);
+  }, [title, hideOverlay]);
 
   // Text drift off the capped clock, not RN Animated.loop - the native-driver
   // loop animated the transform every vsync, which alone kept the whole window
@@ -944,7 +947,9 @@ function Screensaver({
         clock={clock}
       />
 
-      {!!albumArt && (
+      {/* Unmounted rather than made transparent, so hiding it also drops the
+          art canvas and disposes its image. */}
+      {!hideOverlay && !!albumArt && (
         <AlbumArt
           uri={albumArt}
           showProgressRing={showProgressRing}
@@ -955,7 +960,7 @@ function Screensaver({
 
       <SaverHint />
 
-      {title ? (
+      {hideOverlay ? null : title ? (
         <ReAnimated.View style={[styles.floatBlock, floatStyle]}>
           <Text style={styles.trackTitle} numberOfLines={2}>
             {title}

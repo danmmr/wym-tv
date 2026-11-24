@@ -229,7 +229,7 @@ While the screensaver is showing:
 | --- | --- |
 | Left / Right | Step through the views: Topographic, Flow, Starfield / warp tunnel, Metaball / lava lamp, Moiré, then the art frame |
 | Down | Return to Now Playing |
-| Up | Nothing, on purpose (it used to pick a view) |
+| Up | Hide or show the floating album art and text (remembered; does nothing in the art frame) |
 | ☰ Menu | Toggle the song-progress ring around the album art (off by default) |
 | OK, Back, anything else | Return to Now Playing |
 

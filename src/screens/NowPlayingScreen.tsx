@@ -6,6 +6,7 @@ import {
   Pressable,
   Image,
   Dimensions,
+  PixelRatio,
   FlatList,
   DeviceEventEmitter,
   BackHandler,
@@ -113,6 +114,13 @@ const STYLE_ROW_H = STYLE_CARD_H + STYLE_GAP;
 const STYLE_VISIBLE_ROWS = Math.max(1, Math.floor((WIN_H - 150) / STYLE_ROW_H));
 const STYLE_LIST_H = STYLE_VISIBLE_ROWS * STYLE_ROW_H;
 const COVER = Math.round(WIN_H * 0.44);
+const COVER_PX = PixelRatio.getPixelSizeForLayoutSize(COVER);
+// The backdrop is blurred, so it needs no detail. Blur runs at the image's own
+// resolution: a quarter of 1000 px with a quarter of the old radius (8) looks
+// the same.
+const BACKDROP_PX = 250;
+const BACKDROP_BLUR = 2;
+import {sizedArt} from '../api/artSize';
 import {useDeviceStore} from '../store/deviceStore';
 import {useShallow} from 'zustand/react/shallow';
 import {MetaGate, statusSignature} from '../playback/metaGate';
@@ -1226,10 +1234,12 @@ export default function NowPlayingScreen({navigation}: any) {
     <View style={styles.container}>
       {albumArt ? (
         <Image
-          source={{uri: albumArt}}
+          source={{uri: sizedArt(albumArt, BACKDROP_PX)}}
           style={styles.bg}
           resizeMode="cover"
-          blurRadius={8}
+          blurRadius={
+            sizedArt(albumArt, BACKDROP_PX) === albumArt ? 8 : BACKDROP_BLUR
+          }
         />
       ) : null}
       {/* Bottom-weighted, so the art stays bright up top and the darkness sits
@@ -1606,14 +1616,14 @@ function AlbumCover({uri, accent}: {uri?: string; accent: string}) {
     <View style={styles.coverStack}>
       {under ? (
         <Image
-          source={{uri: under}}
+          source={{uri: sizedArt(under, COVER_PX)}}
           style={[styles.cover, styles.coverUnder, {borderColor: accent}]}
           resizeMode="cover"
         />
       ) : null}
       {top ? (
         <Animated.Image
-          source={{uri: top}}
+          source={{uri: sizedArt(top, COVER_PX)}}
           onError={() => setFailed(top)}
           style={[styles.cover, {borderColor: accent}, topStyle]}
           resizeMode="cover"

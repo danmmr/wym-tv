@@ -1,6 +1,9 @@
 package com.wymtv
 
 import android.app.Application
+import com.facebook.common.internal.Supplier
+import com.facebook.imagepipeline.backends.okhttp3.OkHttpImagePipelineConfigFactory
+import com.facebook.imagepipeline.cache.MemoryCacheParams
 import com.facebook.react.PackageList
 import com.facebook.react.ReactApplication
 import com.facebook.react.ReactHost
@@ -12,6 +15,7 @@ import com.facebook.react.defaults.DefaultReactNativeHost
 import com.facebook.react.flipper.ReactNativeFlipper
 import com.facebook.react.modules.network.OkHttpClientFactory
 import com.facebook.react.modules.network.OkHttpClientProvider
+import com.facebook.react.shell.MainPackageConfig
 import com.facebook.soloader.SoLoader
 import java.security.KeyStore
 import java.security.cert.X509Certificate
@@ -103,7 +107,7 @@ class MainApplication : Application(), ReactApplication {
   override val reactNativeHost: ReactNativeHost =
       object : DefaultReactNativeHost(this) {
         override fun getPackages(): List<ReactPackage> =
-            PackageList(this).packages.apply {
+            PackageList(this, imageConfig()).packages.apply {
               add(RemoteControlPackage())
               add(WakeControlPackage())
             }
@@ -115,6 +119,23 @@ class MainApplication : Application(), ReactApplication {
         override val isNewArchEnabled: Boolean = BuildConfig.IS_NEW_ARCHITECTURE_ENABLED
         override val isHermesEnabled: Boolean = BuildConfig.IS_HERMES_ENABLED
       }
+
+  // Caps the decoded-image cache, which otherwise takes a quarter of the heap.
+  // Mirrors React Native's own Fresco config apart from that, the cookie jar,
+  // and per-image request headers, which no image here uses. Called from getPackages(), so after
+  // onCreate() has installed the LAN trust factory that the client is built from.
+  private fun imageConfig(): MainPackageConfig {
+    val client = OkHttpClientProvider.createClient()
+    val bytes = 24 * 1024 * 1024
+    val params = MemoryCacheParams(bytes, 256, bytes, Int.MAX_VALUE, Int.MAX_VALUE)
+    return MainPackageConfig.Builder()
+        .setFrescoConfig(
+            OkHttpImagePipelineConfigFactory.newBuilder(this, client)
+                .setDownsampleEnabled(false)
+                .setBitmapMemoryCacheParamsSupplier(Supplier { params })
+                .build())
+        .build()
+  }
 
   override val reactHost: ReactHost
     get() = getDefaultReactHost(this.applicationContext, reactNativeHost)

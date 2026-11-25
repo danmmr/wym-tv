@@ -85,7 +85,9 @@ class MainActivity : ReactActivity() {
             else -> null
           }
       if (nav != null) {
-        emitToJs("WiiMNavKey", nav)
+        // Auto-repeats of a held key travel separately so a screen can ignore
+        // them; the screensaver does, everything else treats them as presses.
+        emitToJs(if ((event?.repeatCount ?: 0) > 0) "WiiMNavRepeat" else "WiiMNavKey", nav)
         return true
       }
     }

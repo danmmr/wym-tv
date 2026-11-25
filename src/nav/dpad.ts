@@ -21,7 +21,9 @@ import {DeviceEventEmitter, NativeModules} from 'react-native';
 // before; the stack means an unsubscribe during a transition falls back to the
 // screen underneath rather than to nothing.
 
-type NavHandler = (key: string) => void;
+// `repeat` is true for the auto-repeats of a held key. Most screens ignore the
+// argument and treat a repeat as one more press.
+type NavHandler = (key: string, repeat: boolean) => void;
 
 // A stack, not a single slot: react-navigation focuses the incoming screen
 // before the outgoing one cleans up in some transitions and after it in
@@ -40,13 +42,13 @@ const BUFFER_MS = 500;
 let pending: {key: string; at: number} | null = null;
 let now = () => Date.now();
 
-export function dispatchNavKey(key: string): void {
+export function dispatchNavKey(key: string, repeat = false): void {
   const top = handlers[handlers.length - 1];
   if (top) {
     // No need to clear `pending` here: subscribeNav always consumes it, so it
     // is already null whenever a handler exists. (A clear was written here
     // first; a mutation test showed nothing could reach it.)
-    top(key);
+    top(key, repeat);
     return;
   }
   pending = BUFFERED_KEYS.has(key) ? {key, at: now()} : null;
@@ -63,7 +65,7 @@ export function subscribeNav(handler: NavHandler): () => void {
   const held = pending;
   pending = null;
   if (held && now() - held.at <= BUFFER_MS) {
-    handler(held.key);
+    handler(held.key, false);
   }
 
   return () => {
@@ -80,7 +82,12 @@ export function captureDpad(): void {
   NativeModules.RemoteControl?.setCaptureDpad(true);
 }
 
-DeviceEventEmitter.addListener('WiiMNavKey', dispatchNavKey);
+DeviceEventEmitter.addListener('WiiMNavKey', (key: string) =>
+  dispatchNavKey(key),
+);
+DeviceEventEmitter.addListener('WiiMNavRepeat', (key: string) =>
+  dispatchNavKey(key, true),
+);
 
 // Test seam: lets the buffer's expiry be exercised without real waiting.
 export function __setClock(fn: () => number): void {

@@ -1,4 +1,4 @@
-import React, {useEffect, useState, useMemo} from 'react';
+import React, {useEffect, useRef, useState, useMemo} from 'react';
 import {View, Text, StyleSheet, Dimensions, PixelRatio} from 'react-native';
 import {
   Canvas,
@@ -596,6 +596,12 @@ function decodeArt(bytes: Uint8Array): SkImage | null {
   }
 }
 
+// The last decoded cover, kept across unmounts. The art frame replaces the whole
+// Screensaver, so every trip through it used to fetch, decode and upload the same
+// cover again, and graphics memory kept each one (~0.6 MB a round trip). Holding
+// one small image is the cheaper side of that trade.
+let artCache: {uri: string; img: SkImage} | null = null;
+
 const AlbumArt = React.memo(function AlbumArt({
   uri,
   showProgressRing,
@@ -607,7 +613,10 @@ const AlbumArt = React.memo(function AlbumArt({
   trackProgress: SharedValue<number>;
   clock: SharedValue<number>;
 }) {
-  const [img, setImg] = useState<SkImage | null>(null);
+  const [img, setImg] = useState<SkImage | null>(() =>
+    artCache?.uri === uri ? artCache.img : null,
+  );
+  const shownRef = useRef<SkImage | null>(img);
   const clipPath = useMemo(makeCirclePath, []);
 
   // The ring is drawn from an SVG path STRING built in JS, so unlike the shader
@@ -628,6 +637,10 @@ const AlbumArt = React.memo(function AlbumArt({
   );
 
   useEffect(() => {
+    if (artCache?.uri === uri) {
+      setImg(artCache.img);
+      return;
+    }
     let cancelled = false;
     fetch(uri)
       .then(r => r.arrayBuffer())
@@ -635,7 +648,16 @@ const AlbumArt = React.memo(function AlbumArt({
         if (cancelled) {
           return;
         }
-        setImg(decodeArt(new Uint8Array(buf)));
+        const next = decodeArt(new Uint8Array(buf));
+        if (next) {
+          // A cached cover left by an earlier mount is on no canvas, so nothing
+          // else will free it. The one on screen is freed by the effect below.
+          if (artCache && artCache.img !== shownRef.current) {
+            artCache.img.dispose();
+          }
+          artCache = {uri, img: next};
+        }
+        setImg(next);
       })
       .catch(() => {});
     return () => {
@@ -644,15 +666,18 @@ const AlbumArt = React.memo(function AlbumArt({
   }, [uri]);
 
   // Deterministically free each SkImage's native memory when it is replaced by
-  // the next track's art (or on unmount). Skia images hold native/GPU memory
+  // the next track's art. The cached one is kept on unmount, for the next mount. Skia images hold native/GPU memory
   // that JS GC only reclaims lazily; on the memory-constrained Fire Stick that
   // lag accumulates over hours of track changes until the device wedges. This
   // cleanup runs AFTER React has committed the new image to the canvas, so the
   // outgoing image is no longer drawn and is safe to dispose. See
   // [[project-wiimtv]] Skia notes.
   useEffect(() => {
+    shownRef.current = img;
     return () => {
-      img?.dispose();
+      if (img && artCache?.img !== img) {
+        img.dispose();
+      }
     };
   }, [img]);
 
@@ -990,7 +1015,7 @@ function Screensaver({
       />
 
       {/* Unmounted rather than made transparent, so hiding it also drops the
-          art canvas and disposes its image. */}
+          art canvas. Its image stays in artCache for the next mount. */}
       {!hideOverlay && !!albumArt && (
         <AlbumArt
           uri={albumArt}

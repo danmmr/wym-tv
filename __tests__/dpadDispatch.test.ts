@@ -25,6 +25,19 @@ import {
 beforeEach(() => __reset());
 
 describe('D-pad routing', () => {
+  it('marks auto-repeats of a held key, and only those', () => {
+    const seen: Array<[string, boolean]> = [];
+    subscribeNav((k, repeat) => seen.push([k, repeat]));
+
+    DeviceEventEmitter.emit('WiiMNavKey', 'left');
+    DeviceEventEmitter.emit('WiiMNavRepeat', 'left');
+
+    expect(seen).toStrictEqual([
+      ['left', false],
+      ['left', true],
+    ]);
+  });
+
   it('delivers native WiiMNavKey events to the subscriber', () => {
     const seen: string[] = [];
     subscribeNav(k => seen.push(k));

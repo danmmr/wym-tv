@@ -1088,8 +1088,13 @@ export default function NowPlayingScreen({navigation}: any) {
     useCallback(() => {
       captureDpad();
 
-      const navSub = subscribeNav((k: string) => {
+      const navSub = subscribeNav((k: string, repeat: boolean) => {
         if (showScreensaverRef.current) {
+          // One press, one action: a held key (a remote being sat on) would
+          // otherwise spin through every view, mounting each in turn.
+          if (repeat) {
+            return;
+          }
           // Left and right step through SAVER_MODES, wrapping both ways.
           // Down, OK/center and BACK dismiss; the menu/options button toggles
           // the album-art progress ring. Any other key also dismisses.

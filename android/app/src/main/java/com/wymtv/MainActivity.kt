@@ -52,6 +52,13 @@ class MainActivity : ReactActivity() {
         ?.emit(event, value)
   }
 
+  // Pass Android's low-memory signal to JS, which asks Skia to free its GPU
+  // cache (see the WymTrimMemory listener in Screensaver.tsx).
+  override fun onTrimMemory(level: Int) {
+    super.onTrimMemory(level)
+    emitToJs("WymTrimMemory", level.toString())
+  }
+
   override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
     // Media keys always forward (don't conflict with focus navigation).
     val media =

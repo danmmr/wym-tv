@@ -1,5 +1,12 @@
 import React, {useEffect, useRef, useState, useMemo} from 'react';
-import {View, Text, StyleSheet, Dimensions, PixelRatio} from 'react-native';
+import {
+  View,
+  Text,
+  StyleSheet,
+  Dimensions,
+  PixelRatio,
+  DeviceEventEmitter,
+} from 'react-native';
 import {
   Canvas,
   Fill,
@@ -601,6 +608,13 @@ function decodeArt(bytes: Uint8Array): SkImage | null {
 // cover again, and graphics memory kept each one (~0.6 MB a round trip). Holding
 // one small image is the cheaper side of that trade.
 let artCache: {uri: string; img: SkImage} | null = null;
+
+// Skia keeps freed textures (one per old cover) as purgeable cache. Our patch to
+// react-native-skia (patches/) caps that cache at 16 MB and adds PurgeGpuCache,
+// which empties it; MainActivity forwards Android's low-memory signal here.
+DeviceEventEmitter.addListener('WymTrimMemory', () =>
+  (Skia.Surface as unknown as {PurgeGpuCache?: () => void}).PurgeGpuCache?.(),
+);
 
 const AlbumArt = React.memo(function AlbumArt({
   uri,

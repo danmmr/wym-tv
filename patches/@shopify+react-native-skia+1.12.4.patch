@@ -1,0 +1,49 @@
+diff --git a/node_modules/@shopify/react-native-skia/android/cpp/rnskia-android/OpenGLContext.h b/node_modules/@shopify/react-native-skia/android/cpp/rnskia-android/OpenGLContext.h
+index a8ca8b7..7d07e19 100644
+--- a/node_modules/@shopify/react-native-skia/android/cpp/rnskia-android/OpenGLContext.h
++++ b/node_modules/@shopify/react-native-skia/android/cpp/rnskia-android/OpenGLContext.h
+@@ -194,6 +194,10 @@ private:
+     if (_directContext == nullptr) {
+       throw std::runtime_error("GrDirectContexts::MakeGL failed");
+     }
++    // WyM TV patch: Skia's default 256 MB budget lets every freed cover texture
++    // stay cached (~0.5 MB per album on the screensaver). Only purgeable
++    // resources are dropped to meet the limit, so a small one is safe.
++    _directContext->setResourceCacheLimit(16 * 1024 * 1024);
+   }
+ };
+ 
+diff --git a/node_modules/@shopify/react-native-skia/cpp/api/JsiSkSurfaceFactory.h b/node_modules/@shopify/react-native-skia/cpp/api/JsiSkSurfaceFactory.h
+index 66d356b..afc7410 100644
+--- a/node_modules/@shopify/react-native-skia/cpp/api/JsiSkSurfaceFactory.h
++++ b/node_modules/@shopify/react-native-skia/cpp/api/JsiSkSurfaceFactory.h
+@@ -13,6 +13,7 @@
+ #pragma clang diagnostic ignored "-Wdocumentation"
+ 
+ #include "include/core/SkSurface.h"
++#include "include/gpu/ganesh/GrDirectContext.h"
+ 
+ #pragma clang diagnostic pop
+ 
+@@ -48,7 +49,21 @@ public:
+         std::make_shared<JsiSkSurface>(getContext(), std::move(surface)));
+   }
+ 
++  // WyM TV patch: free the GPU resource cache of the thread Skia views draw on
++  // (the main thread). Called when Android signals low memory. Async.
++  JSI_HOST_FUNCTION(PurgeGpuCache) {
++    auto ctx = getContext();
++    ctx->runOnMainThread([ctx]() {
++      auto dc = ctx->getDirectContext();
++      if (dc != nullptr) {
++        dc->freeGpuResources();
++      }
++    });
++    return jsi::Value::undefined();
++  }
++
+   JSI_EXPORT_FUNCTIONS(JSI_EXPORT_FUNC(JsiSkSurfaceFactory, Make),
++                       JSI_EXPORT_FUNC(JsiSkSurfaceFactory, PurgeGpuCache),
+                        JSI_EXPORT_FUNC(JsiSkSurfaceFactory, MakeOffscreen))
+ 
+   explicit JsiSkSurfaceFactory(std::shared_ptr<RNSkPlatformContext> context)
